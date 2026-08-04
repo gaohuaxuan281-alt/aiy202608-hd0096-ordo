@@ -51,6 +51,14 @@ export async function ensureAuthSchema() {
         )`),
         d1.prepare("CREATE UNIQUE INDEX IF NOT EXISTS sessions_token_hash_unique ON sessions (token_hash)"),
         d1.prepare("CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions (user_id)"),
+        d1.prepare(`CREATE TABLE IF NOT EXISTS user_profiles (
+          user_id TEXT PRIMARY KEY NOT NULL,
+          display_name TEXT NOT NULL,
+          study_stage TEXT NOT NULL,
+          school TEXT NOT NULL,
+          updated_at INTEGER NOT NULL,
+          FOREIGN KEY (user_id) REFERENCES users(id) ON UPDATE no action ON DELETE cascade
+        )`),
       ])
       .then(() => undefined)
       .catch((error) => {
@@ -181,6 +189,52 @@ export async function findUserCredentialByPhone(phone: string) {
     .first<UserCredentialRow>();
 
   return row ?? null;
+}
+
+export async function findUserCredentialById(userId: string) {
+  await ensureAuthSchema();
+  const row = await getD1()
+    .prepare(`SELECT
+      id,
+      phone,
+      password_hash AS passwordHash,
+      password_salt AS passwordSalt,
+      password_iterations AS passwordIterations,
+      created_at AS createdAt
+    FROM users
+    WHERE id = ?
+    LIMIT 1`)
+    .bind(userId)
+    .first<UserCredentialRow>();
+
+  return row ?? null;
+}
+
+export async function updatePassword(
+  userId: string,
+  newPassword: string,
+  currentSessionToken: string,
+) {
+  await ensureAuthSchema();
+  const d1 = getD1();
+  const credential = await createPasswordCredential(newPassword);
+  const currentTokenHash = await sha256(currentSessionToken);
+
+  await d1.batch([
+    d1
+      .prepare(`UPDATE users
+        SET password_hash = ?, password_salt = ?, password_iterations = ?
+        WHERE id = ?`)
+      .bind(
+        credential.passwordHash,
+        credential.passwordSalt,
+        credential.passwordIterations,
+        userId,
+      ),
+    d1
+      .prepare("DELETE FROM sessions WHERE user_id = ? AND token_hash <> ?")
+      .bind(userId, currentTokenHash),
+  ]);
 }
 
 export async function createSession(userId: string) {

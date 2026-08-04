@@ -33,3 +33,22 @@ test("account implementation keeps passwords hashed and sessions server-only", a
   assert.match(registerSource, /confirmPassword/);
   assert.deepEqual(JSON.parse(hostingConfig).d1, "DB");
 });
+
+test("user center supports durable profiles, password changes, and a non-paying membership demo", async () => {
+  const [profilePage, profileRoute, passwordRoute, profileService] = await Promise.all([
+    readFile(new URL("../features/profile/ProfilePage.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/account/profile/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/account/password/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/profile.ts", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(profilePage, /编辑个人资料/);
+  assert.match(profilePage, /修改登录密码/);
+  assert.match(profilePage, /充值会员（演示）/);
+  assert.match(profilePage, /不会扣款/);
+  assert.doesNotMatch(profilePage, /api\/(payment|pay|checkout)/i);
+  assert.match(profileRoute, /saveUserProfile/);
+  assert.match(profileService, /ON CONFLICT\(user_id\) DO UPDATE/);
+  assert.match(passwordRoute, /verifyPassword/);
+  assert.match(passwordRoute, /updatePassword/);
+});
