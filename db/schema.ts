@@ -100,3 +100,35 @@ export const aiMessages = sqliteTable(
   },
   (table) => [index("idx_ai_messages_conversation_created").on(table.conversationId, table.createdAt)],
 );
+
+export const journalEntries = sqliteTable(
+  "journal_entries",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    eventName: text("event_name").notNull(),
+    actorType: text("actor_type").notNull(),
+    actorLabel: text("actor_label").notNull(),
+    module: text("module").notNull(),
+    moduleLabel: text("module_label").notNull(),
+    action: text("action").notNull(),
+    actionLabel: text("action_label").notNull(),
+    title: text("title").notNull(),
+    summary: text("summary").notNull(),
+    reason: text("reason").notNull(),
+    relatedObjectType: text("related_object_type").notNull(),
+    relatedObjectId: text("related_object_id").notNull(),
+    relatedObjectLabel: text("related_object_label").notNull(),
+    relatedObjectHref: text("related_object_href").notNull(),
+    changesJson: text("changes_json").notNull(),
+    undoable: integer("undoable", { mode: "boolean" }).notNull(),
+    correctionOf: text("correction_of"),
+    occurredAt: integer("occurred_at").notNull(),
+  },
+  (table) => [
+    index("idx_journal_entries_user_occurred").on(table.userId, table.occurredAt),
+    index("idx_journal_entries_user_module").on(table.userId, table.module),
+  ],
+);

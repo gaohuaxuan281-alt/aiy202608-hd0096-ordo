@@ -62,6 +62,18 @@ git status
 
 首页负责人负责把这些实现装配到 `HomeDashboardAdapters`。字段需要调整时，先修改 `home-types.ts` 并在 PR 中说明受影响模块；禁止从首页直接导入其他模块的内部组件或客户端状态。
 
+## 日志数据接入
+
+日志页面位于 `features/journal/`，由三层组成：
+
+1. `journal-types.ts` 定义跨模块事件、前后变化和关联对象。
+2. `journal-data.ts` 提供服务端只读适配器与统一事件名目录。
+3. `JournalPage.tsx` 负责筛选、检索、详情、关联跳转和导出，不持有其他模块的业务状态。
+
+Todo、Timeline、AI Tutor、反馈总结、进展洞察和用户中心在业务操作成功后发布对应领域事件。先完成来源模块的事务，再追加日志；失败的业务操作不得伪造“成功”日志。撤销和纠正必须新增记录，禁止覆盖原始事件。
+
+生产环境已经使用 D1 的 `journal_entries` 表，路由通过 `createD1JournalAdapter(user.id)` 按当前用户查询。来源模块应在服务端调用 `appendJournalEntry()`，或在日志失败不应阻断主操作时调用 `appendJournalEntryBestEffort()`；不要从浏览器直接写入日志。保持 `JournalSnapshot` 与 `JournalEntry` 字段稳定，且不得记录密码内容、令牌、完整手机号、API 密钥或支付凭证。
+
 ## 当前项目管理员
 
 - `@gaohuaxuan281-alt`

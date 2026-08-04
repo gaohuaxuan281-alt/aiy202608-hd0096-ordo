@@ -10,6 +10,9 @@
 - `features/<module>/`：员工独立开发区。业务组件、hooks、types、services 和测试都应留在对应模块内。
 - `features/home/home-types.ts`：首页只读聚合契约。其他模块通过这些类型向首页提供摘要，不允许首页反向修改业务数据。
 - `features/home/home-data.ts`：首页服务端适配层；目前返回集中管理的占位数据，后续逐项替换为各模块查询服务。
+- `features/journal/journal-types.ts`：跨模块操作事件与日志展示的稳定契约；来源模块只提交事实，不引用日志页面内部状态。
+- `features/journal/journal-data.ts`：日志只读查询适配层与事件目录；生产页面使用 D1 适配器，测试和独立预览可注入样例适配器。
+- `lib/journal-store.ts`：追加日志和按用户查询日志的唯一服务端入口，包含敏感字段防护与 JSON 变化记录解析。
 - `features/shared/`：仅放至少被两个业务模块稳定复用的组件；不要把临时业务逻辑上移到这里。
 - `app/api/auth/`：手机号注册、登录、会话读取与退出接口。
 - `app/api/account/`：当前用户的个人资料和密码维护接口；每个接口都需要独立验证登录会话。
@@ -61,6 +64,18 @@
 | 操作来源说明 | 日志 | 展示最近事件，不编辑日志 |
 
 接入顺序：先在本模块实现查询函数，再替换 `placeholderHomeAdapters` 对应方法，保持 `HomeDashboardSnapshot` 字段稳定。任何调整都必须在 Timeline 中由用户确认后落地，首页不能直接写入 Timeline 或 Todo。
+
+## 日志事件契约
+
+日志是操作记录中心，不是用户手写日记。页面通过 `getJournalSnapshot()` 读取追加式事件流，并提供日期、模块、操作者、操作类型和全文检索，以及前后变化、原因、关联对象和 CSV 导出。
+
+其他模块完成业务操作后，应发布一个命名明确的领域事件。事件名统一维护在 `JOURNAL_EVENT_CATALOG`，当前覆盖任务、计划、反馈、答疑、掌握度、会员、注册、登录、退出、账号资料、安全设置、学习档案和纠正记录等事件。
+
+每条 `JournalEntry` 必须包含：时间、操作者、操作类型、涉及模块、涉及对象、修改前后内容、修改原因和是否可撤销。不得把密码、会话令牌、完整手机号、AI 密钥或支付凭证写入日志。
+
+日志采用追加式模型：已写入记录不可更新或删除。撤销业务操作时，来源模块先完成自己的补偿操作，再追加 `CorrectionRecorded` 并通过 `correctionOf` 指向原记录。日志页面不直接修改 Timeline、Todo 或其他模块状态。
+
+生产页面通过 `createD1JournalAdapter(user.id)` 读取 `journal_entries`，按当前用户隔离所有权；客户端只接收经过权限校验的日志快照。其他模块在服务端调用 `appendJournalEntry()`，或在不应影响主操作结果的场景调用 `appendJournalEntryBestEffort()`。不得从浏览器直接伪造日志事件。
 
 ## 统一 AI 调用契约
 

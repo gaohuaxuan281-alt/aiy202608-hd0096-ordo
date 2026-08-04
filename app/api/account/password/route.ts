@@ -6,6 +6,7 @@ import {
   updatePassword,
   verifyPassword,
 } from "../../../../lib/auth";
+import { appendJournalEntryBestEffort } from "../../../../lib/journal-store";
 
 type PasswordPayload = {
   currentPassword?: unknown;
@@ -51,6 +52,24 @@ export async function POST(request: Request) {
     }
 
     await updatePassword(user.id, newPassword, sessionToken);
+    await appendJournalEntryBestEffort(user.id, {
+      eventName: "AccountSecurityChanged",
+      actorType: "user",
+      actorLabel: "你",
+      module: "auth",
+      moduleLabel: "账号安全",
+      action: "account_security_changed",
+      actionLabel: "安全设置",
+      title: "登录密码已更新",
+      summary: "账号登录密码已更换，其他登录会话已失效。密码内容不会写入日志。",
+      reason: "用户在用户中心完成密码修改。",
+      relatedObject: { type: "account", id: "current-account", label: "账号安全设置", href: "/profile" },
+      changes: [
+        { field: "登录密码", before: "旧密码（内容不记录）", after: "新密码（内容不记录）" },
+        { field: "其他会话", before: "可能有效", after: "已失效" },
+      ],
+      undoable: false,
+    });
     return Response.json(
       { ok: true },
       { headers: { "Cache-Control": "no-store" } },

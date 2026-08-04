@@ -1,6 +1,7 @@
 import { findUserByCookieHeader } from "../../../../lib/auth";
 import { getUserProfile, saveUserProfile } from "../../../../lib/profile";
 import { STUDY_STAGES, type StudyStage } from "../../../../lib/profile-types";
+import { appendJournalEntryBestEffort } from "../../../../lib/journal-store";
 
 type ProfilePayload = {
   displayName?: unknown;
@@ -55,11 +56,34 @@ export async function PUT(request: Request) {
   }
 
   try {
+    const previousProfile = await getUserProfile(user.id);
     const profile = await saveUserProfile(user.id, {
       displayName,
       school,
       studyStage: studyStage as StudyStage,
     });
+    const changes = [
+      previousProfile.displayName !== profile.displayName ? { field: "昵称", before: previousProfile.displayName, after: profile.displayName } : null,
+      previousProfile.studyStage !== profile.studyStage ? { field: "学习阶段", before: previousProfile.studyStage || "未设置", after: profile.studyStage || "未设置" } : null,
+      previousProfile.school !== profile.school ? { field: "学校或机构", before: previousProfile.school || "未设置", after: profile.school || "未设置" } : null,
+    ].filter((change): change is NonNullable<typeof change> => Boolean(change));
+    if (changes.length) {
+      await appendJournalEntryBestEffort(user.id, {
+        eventName: "AccountProfileUpdated",
+        actorType: "user",
+        actorLabel: "你",
+        module: "profile",
+        moduleLabel: "用户中心",
+        action: "account_profile_updated",
+        actionLabel: "更新资料",
+        title: "账号基本资料已更新",
+        summary: `本次修改了 ${changes.length} 项账号资料。`,
+        reason: "用户在用户中心保存个人资料。",
+        relatedObject: { type: "account", id: "current-account", label: "账号基本资料", href: "/profile" },
+        changes,
+        undoable: true,
+      });
+    }
     return Response.json({ profile }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     console.error("Failed to update user profile", error);

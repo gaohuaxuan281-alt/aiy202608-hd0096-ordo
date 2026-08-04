@@ -154,3 +154,69 @@ test("homepage is a complete read-only aggregation surface with replaceable modu
   assert.match(homePage, /只有在 Timeline 中确认后/);
   assert.match(architecture, /首页不建立独立业务表/);
 });
+
+test("journal is an append-only operation center with durable events, filtering, details, and export", async () => {
+  const [route, journalPage, journalData, journalTypes, journalStore, schema, loginRoute, architecture] = await Promise.all([
+    readFile(new URL("../app/journal/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../features/journal/JournalPage.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../features/journal/journal-data.ts", import.meta.url), "utf8"),
+    readFile(new URL("../features/journal/journal-types.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/journal-store.ts", import.meta.url), "utf8"),
+    readFile(new URL("../db/schema.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/auth/login/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../docs/ARCHITECTURE.md", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(route, /getJournalSnapshot/);
+  assert.match(route, /<JournalPage snapshot=\{snapshot\}/);
+  assert.match(journalTypes, /JournalDataAdapter/);
+  assert.match(journalTypes, /correctionOf/);
+  assert.match(journalData, /placeholderJournalAdapter/);
+  assert.match(journalData, /createD1JournalAdapter/);
+  assert.match(journalData, /JOURNAL_EVENT_CATALOG/);
+  assert.match(journalStore, /appendJournalEntry/);
+  assert.match(journalStore, /WHERE user_id = \?/);
+  assert.match(journalStore, /SENSITIVE_TEXT/);
+  assert.match(schema, /journalEntries/);
+  assert.match(loginRoute, /appendJournalEntryBestEffort/);
+
+  for (const eventName of [
+    "TaskCreated",
+    "TaskUpdated",
+    "TaskDeleted",
+    "TaskStarted",
+    "TaskPaused",
+    "TaskCompleted",
+    "TaskDelayed",
+    "TimelineAdjusted",
+    "AdjustmentAccepted",
+    "AdjustmentRejected",
+    "DailyFeedbackCompleted",
+    "TutorSessionCompleted",
+    "MasteryChanged",
+    "MembershipChanged",
+    "AccountSignedIn",
+    "AccountSecurityChanged",
+  ]) {
+    assert.match(journalData, new RegExp(eventName));
+  }
+
+  for (const label of [
+    "导出日志",
+    "搜索任务、对象、原因或操作",
+    "全部模块",
+    "全部操作者",
+    "详细变化",
+    "修改原因",
+    "涉及模块",
+    "是否可撤销",
+    "准备纠正记录",
+    "历史日志不可编辑",
+  ]) {
+    assert.match(journalPage, new RegExp(label));
+  }
+
+  assert.match(journalPage, /URL\.createObjectURL/);
+  assert.match(architecture, /日志采用追加式模型/);
+  assert.match(architecture, /不得把密码、会话令牌、完整手机号/);
+});
