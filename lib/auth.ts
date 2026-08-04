@@ -74,6 +74,28 @@ export async function ensureAuthSchema() {
           PRIMARY KEY (user_id, subject),
           FOREIGN KEY (user_id) REFERENCES users(id) ON UPDATE no action ON DELETE cascade
         )`),
+        d1.prepare(`CREATE TABLE IF NOT EXISTS ai_conversations (
+          id TEXT PRIMARY KEY NOT NULL,
+          user_id TEXT NOT NULL,
+          module TEXT NOT NULL,
+          title TEXT NOT NULL,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          FOREIGN KEY (user_id) REFERENCES users(id) ON UPDATE no action ON DELETE cascade
+        )`),
+        d1.prepare("CREATE INDEX IF NOT EXISTS idx_ai_conversations_user_updated ON ai_conversations (user_id, updated_at)"),
+        d1.prepare(`CREATE TABLE IF NOT EXISTS ai_messages (
+          id TEXT PRIMARY KEY NOT NULL,
+          conversation_id TEXT NOT NULL,
+          role TEXT NOT NULL,
+          content TEXT NOT NULL,
+          model TEXT,
+          input_tokens INTEGER,
+          output_tokens INTEGER,
+          created_at INTEGER NOT NULL,
+          FOREIGN KEY (conversation_id) REFERENCES ai_conversations(id) ON UPDATE no action ON DELETE cascade
+        )`),
+        d1.prepare("CREATE INDEX IF NOT EXISTS idx_ai_messages_conversation_created ON ai_messages (conversation_id, created_at)"),
       ])
       .then(() => undefined)
       .catch((error: unknown) => {

@@ -79,3 +79,39 @@ test("user center supports durable profiles, editable learning settings, passwor
   assert.match(passwordRoute, /verifyPassword/);
   assert.match(passwordRoute, /updatePassword/);
 });
+
+test("all product modules share one authenticated and server-only OpenAI service", async () => {
+  const [
+    aiConfig,
+    aiRoute,
+    openaiService,
+    appShell,
+    tutorWorkspace,
+    featureScaffold,
+    schema,
+  ] = await Promise.all([
+    readFile(new URL("../config/ai.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/ai/respond/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/openai.ts", import.meta.url), "utf8"),
+    readFile(new URL("../components/AppShell.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../features/ai-tutor/AITutorWorkspace.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../features/shared/FeatureScaffold.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../db/schema.ts", import.meta.url), "utf8"),
+  ]);
+
+  for (const moduleName of ["home", "timeline", "todo", "ai-tutor", "journal", "summary", "insights", "profile"]) {
+    assert.match(aiConfig, new RegExp(`(?:"${moduleName}"|${moduleName}):`));
+  }
+  assert.match(aiRoute, /findUserByCookieHeader/);
+  assert.match(aiRoute, /countRecentAIRequests/);
+  assert.match(aiRoute, /getLearningProfile/);
+  assert.match(openaiService, /https:\/\/api\.openai\.com\/v1\/responses/);
+  assert.match(openaiService, /OPENAI_API_KEY/);
+  assert.match(openaiService, /store: false/);
+  assert.match(openaiService, /safety_identifier/);
+  assert.match(appShell, /GlobalAIAssistant/);
+  assert.match(tutorWorkspace, /useAIConversation\("ai-tutor"\)/);
+  assert.match(featureScaffold, /zhixu:open-ai/);
+  assert.match(schema, /aiConversations/);
+  assert.match(schema, /aiMessages/);
+});

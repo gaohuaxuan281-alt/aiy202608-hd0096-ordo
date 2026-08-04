@@ -6,6 +6,7 @@ import { useState } from "react";
 import { navigation } from "../config/navigation";
 import type { AuthUser } from "../lib/auth";
 import { AuthSessionProvider } from "./AuthSession";
+import { GlobalAIAssistant } from "./GlobalAIAssistant";
 
 function maskPhone(phone: string) {
   return `${phone.slice(0, 3)} ···· ${phone.slice(-4)}`;
@@ -76,6 +77,7 @@ export function AppShell({ children, user }: { children: React.ReactNode; user: 
           </div>
         </div>
       ) : null}
+      <GlobalAIAssistant />
       </div>
     </AuthSessionProvider>
   );

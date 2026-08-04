@@ -168,7 +168,7 @@ export function ProfilePage({
           <h1>用户中心</h1>
           <p>管理个人资料、账号安全与会员方案。</p>
         </div>
-        <span className="account-status"><i />账号状态正常</span>
+        <div className="profile-heading-actions"><button className="button" type="button" onClick={() => window.dispatchEvent(new CustomEvent("zhixu:open-ai", { detail: { module: "profile", prompt: "请根据我的年级、科目和教材，给出使用知序的设置建议。" } }))}>✦ AI 学习建议</button><span className="account-status"><i />账号状态正常</span></div>
       </header>
 
       {notice ? (

@@ -1,3 +1,7 @@
+"use client";
+
+import { AI_MODULES, type AIModule } from "../../config/ai";
+
 type FeatureScaffoldProps = {
   eyebrow: string;
   title: string;
@@ -5,9 +9,16 @@ type FeatureScaffoldProps = {
   glyph: string;
   modulePath: string;
   handoff: string;
+  aiModule: Exclude<AIModule, "home" | "ai-tutor" | "profile">;
 };
 
-export function FeatureScaffold({ eyebrow, title, description, glyph, modulePath, handoff }: FeatureScaffoldProps) {
+export function FeatureScaffold({ eyebrow, title, description, glyph, modulePath, handoff, aiModule }: FeatureScaffoldProps) {
+  const ai = AI_MODULES[aiModule];
+
+  function openAI(prompt = "") {
+    window.dispatchEvent(new CustomEvent("zhixu:open-ai", { detail: { module: aiModule, prompt } }));
+  }
+
   return (
     <>
       <header className="page-heading">
@@ -16,7 +27,7 @@ export function FeatureScaffold({ eyebrow, title, description, glyph, modulePath
           <h1>{title}</h1>
           <p>{description}</p>
         </div>
-        <div className="heading-actions"><button className="button" type="button">筛选</button><button className="button primary" type="button">＋ 新建</button></div>
+        <div className="heading-actions"><button className="button" type="button">筛选</button><button className="button primary" type="button" onClick={() => openAI()}>✦ 调用 AI</button></div>
       </header>
       <section className="feature-stage">
         <div className="feature-stage-head">
@@ -35,6 +46,10 @@ export function FeatureScaffold({ eyebrow, title, description, glyph, modulePath
             <span className="dev-tag">{modulePath}</span>
           </article>
         </div>
+        <article className="module-ai-card">
+          <div className="module-ai-copy"><span aria-hidden="true">✦</span><div><small>OPENAI CONNECTED</small><h3>{ai.label}</h3><p>{ai.description}。员工可以通过统一接口继续把 AI 输出连接到本模块的业务操作。</p></div></div>
+          <div className="module-ai-suggestions">{ai.suggestions.slice(0, 2).map((suggestion) => <button key={suggestion} type="button" onClick={() => openAI(suggestion)}>{suggestion}<span>→</span></button>)}</div>
+        </article>
       </section>
     </>
   );

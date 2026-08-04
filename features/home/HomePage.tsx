@@ -1,6 +1,12 @@
+"use client";
+
 import Link from "next/link";
 
 export function HomePage() {
+  function openAI() {
+    window.dispatchEvent(new CustomEvent("zhixu:open-ai", { detail: { module: "home" } }));
+  }
+
   return (
     <>
       <header className="page-heading">
@@ -10,7 +16,7 @@ export function HomePage() {
           <p>根据考试日期、剩余时间和掌握程度，拆解每日复习任务并动态调整。</p>
         </div>
         <div className="heading-actions">
-          <button className="button" type="button">⌕&nbsp; 搜索</button>
+          <button className="button" type="button" onClick={openAI}>✦&nbsp; 问知序 AI</button>
           <Link className="button primary" href="/todo">＋ 新建任务</Link>
         </div>
       </header>

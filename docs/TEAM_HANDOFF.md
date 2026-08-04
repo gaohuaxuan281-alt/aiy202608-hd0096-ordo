@@ -37,6 +37,8 @@ npm run build
 git status
 ```
 
+本地使用 AI 功能前，将 `.env.example` 复制为 `.env.local`，由项目管理员提供并写入开发密钥。真实密钥不得通过聊天、邮件、代码提交或 PR 传递。
+
 ## 合并规则
 
 - `main` 只接收通过 Pull Request 的改动。
@@ -44,6 +46,7 @@ git status
 - 公共导航、全局主题和壳层改动必须由项目所有者审核。
 - CI 构建必须通过后才可合并。
 - 不允许在业务模块之间直接导入内部组件或状态。
+- 不允许从前端直接调用 OpenAI 或读取 `OPENAI_API_KEY`；所有模块统一使用 `/api/ai/respond` 和 `config/ai.ts` 中的模块标识。
 
 ## 当前项目管理员
 

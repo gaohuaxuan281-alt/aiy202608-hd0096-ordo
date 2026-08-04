@@ -68,3 +68,35 @@ export const userSubjectPreferences = sqliteTable(
   },
   (table) => [primaryKey({ columns: [table.userId, table.subject] })],
 );
+
+export const aiConversations = sqliteTable(
+  "ai_conversations",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    module: text("module").notNull(),
+    title: text("title").notNull(),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (table) => [index("idx_ai_conversations_user_updated").on(table.userId, table.updatedAt)],
+);
+
+export const aiMessages = sqliteTable(
+  "ai_messages",
+  {
+    id: text("id").primaryKey(),
+    conversationId: text("conversation_id")
+      .notNull()
+      .references(() => aiConversations.id, { onDelete: "cascade" }),
+    role: text("role").notNull(),
+    content: text("content").notNull(),
+    model: text("model"),
+    inputTokens: integer("input_tokens"),
+    outputTokens: integer("output_tokens"),
+    createdAt: integer("created_at").notNull(),
+  },
+  (table) => [index("idx_ai_messages_conversation_created").on(table.conversationId, table.createdAt)],
+);
