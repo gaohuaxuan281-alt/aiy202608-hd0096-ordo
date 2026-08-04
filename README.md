@@ -26,8 +26,11 @@ npm run build
 - 一级导航：`config/navigation.ts`
 - 业务模块：`features/`
 - 协作与模块边界：[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+- 员工接手流程：[docs/TEAM_HANDOFF.md](docs/TEAM_HANDOFF.md)
 
 员工应优先在自己负责的 `features/<module>/` 内开发，避免直接修改其他业务模块。一级路由、公共主题或壳层变更需要先确认跨模块影响。
+
+所有功能改动通过 Pull Request 合并到 `main`。仓库内置构建检查和 PR 模板，功能分支命名与接手步骤见员工接手手册。
 
 ## 技术底座
 

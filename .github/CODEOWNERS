@@ -1,0 +1,9 @@
+# 当前由项目所有者兜底审核。收到员工 GitHub 用户名后，
+# 再把各 features/<module>/ 路径分配给对应负责人。
+* @gaohuaxuan281-alt
+
+# 公共框架始终需要项目所有者审核
+/components/AppShell.tsx @gaohuaxuan281-alt
+/config/navigation.ts @gaohuaxuan281-alt
+/app/globals.css @gaohuaxuan281-alt
+/.github/ @gaohuaxuan281-alt
