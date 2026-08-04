@@ -45,6 +45,11 @@ git status
 - CI 构建必须通过后才可合并。
 - 不允许在业务模块之间直接导入内部组件或状态。
 
-## 待员工名单到位后
+## 当前项目管理员
 
-项目所有者会根据 GitHub 用户名更新 `.github/CODEOWNERS`，并按员工邮箱授权线上演示站点访问。
+- `@gaohuaxuan281-alt`
+- `@yqxcecilia-coder`
+- `@monm0101`
+- `@Mary-cjy`
+
+以上账号共同拥有全部代码的审核权。员工接受 GitHub 私有仓库邀请后，即可管理代码、分支、Issues、Projects 与仓库设置。
