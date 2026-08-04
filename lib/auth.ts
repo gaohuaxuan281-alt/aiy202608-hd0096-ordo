@@ -1,7 +1,9 @@
 import { getD1 } from "../db";
 
 const encoder = new TextEncoder();
-const PASSWORD_ITERATIONS = 210_000;
+// Cloudflare Workers Web Crypto currently accepts at most 100,000 PBKDF2 rounds.
+// The per-user value is stored with the hash so this can be raised safely later.
+const PASSWORD_ITERATIONS = 100_000;
 const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 30;
 
 export const SESSION_COOKIE_NAME = "zhixu_session";

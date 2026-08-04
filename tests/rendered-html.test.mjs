@@ -26,6 +26,8 @@ test("account implementation keeps passwords hashed and sessions server-only", a
 
   assert.match(authSource, /PBKDF2/);
   assert.match(authSource, /SHA-256/);
+  assert.match(authSource, /PASSWORD_ITERATIONS = 100_000/);
+  assert.doesNotMatch(authSource, /PASSWORD_ITERATIONS = 210_000/);
   assert.match(authSource, /HttpOnly/);
   assert.match(loginSource, /verifyPassword/);
   assert.match(registerSource, /confirmPassword/);
