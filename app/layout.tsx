@@ -1,7 +1,11 @@
 import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { AppShell } from "../components/AppShell";
+import { AuthPortal } from "../components/AuthPortal";
+import { getCurrentUser } from "../lib/current-user";
 import "./globals.css";
+
+export const dynamic = "force-dynamic";
 
 export async function generateMetadata(): Promise<Metadata> {
   const requestHeaders = await headers();
@@ -38,11 +42,13 @@ export async function generateMetadata(): Promise<Metadata> {
   };
 }
 
-export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+  const user = await getCurrentUser();
+
   return (
     <html lang="zh-CN">
       <body>
-        <AppShell>{children}</AppShell>
+        {user ? <AppShell user={user}>{children}</AppShell> : <AuthPortal />}
       </body>
     </html>
   );
