@@ -48,6 +48,20 @@ git status
 - 不允许在业务模块之间直接导入内部组件或状态。
 - 不允许从前端直接调用 OpenAI 或读取 `OPENAI_API_KEY`；所有模块统一使用 `/api/ai/respond` 和 `config/ai.ts` 中的模块标识。
 
+## 首页数据接入
+
+首页框架已经覆盖考试倒计时、今日进度、下一任务、剩余时间、风险、计划变化、待确认调整、各科进展、AI Tutor、反馈提醒和快捷入口。占位数据统一位于 `features/home/home-data.ts`，不要在 `HomePage.tsx` 中继续写散落的演示数据。
+
+各模块负责人完成真实功能后，只需提供对应的只读首页切片：
+
+- Timeline：`HomeTimelineSlice`
+- Todo：`HomeTodoSlice`
+- AI Tutor：`HomeTutorSlice`
+- 反馈总结：`HomeSummarySlice`
+- 进展洞察：`HomeInsightsSlice`
+
+首页负责人负责把这些实现装配到 `HomeDashboardAdapters`。字段需要调整时，先修改 `home-types.ts` 并在 PR 中说明受影响模块；禁止从首页直接导入其他模块的内部组件或客户端状态。
+
 ## 当前项目管理员
 
 - `@gaohuaxuan281-alt`

@@ -115,3 +115,42 @@ test("all product modules share one authenticated and server-only OpenAI service
   assert.match(schema, /aiConversations/);
   assert.match(schema, /aiMessages/);
 });
+
+test("homepage is a complete read-only aggregation surface with replaceable module adapters", async () => {
+  const [route, homePage, homeData, homeTypes, architecture] = await Promise.all([
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../features/home/HomePage.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../features/home/home-data.ts", import.meta.url), "utf8"),
+    readFile(new URL("../features/home/home-types.ts", import.meta.url), "utf8"),
+    readFile(new URL("../docs/ARCHITECTURE.md", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(route, /getHomeDashboardSnapshot/);
+  assert.match(route, /<HomePage snapshot=\{snapshot\}/);
+  assert.match(homeTypes, /HomeDashboardAdapters/);
+  assert.match(homeData, /placeholderHomeAdapters/);
+  assert.match(homeData, /Promise\.all/);
+  assert.match(homeData, /currentExam: "timeline"/);
+  assert.match(homeData, /todayProgress: "todo"/);
+  assert.match(homeData, /subjectProgress: "insights"/);
+
+  for (const label of [
+    "当前考试",
+    "今日完成进度",
+    "下一项",
+    "今天剩余可用时间",
+    "当前最大风险",
+    "最近发生的计划变化",
+    "待确认调整",
+    "各科进展摘要",
+    "AI Tutor 快速入口",
+    "每日反馈总结",
+    "快速新建任务",
+    "进入 Timeline",
+    "进入今日 Todo",
+  ]) {
+    assert.match(homePage, new RegExp(label));
+  }
+  assert.match(homePage, /只有在 Timeline 中确认后/);
+  assert.match(architecture, /首页不建立独立业务表/);
+});
