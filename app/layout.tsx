@@ -2,7 +2,9 @@ import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { AppShell } from "../components/AppShell";
 import { AuthPortal } from "../components/AuthPortal";
+import { LearningQuestionnaire } from "../features/onboarding/LearningQuestionnaire";
 import { getCurrentUser } from "../lib/current-user";
+import { getLearningProfile } from "../lib/learning-profile";
 import "./globals.css";
 
 export const dynamic = "force-dynamic";
@@ -44,11 +46,18 @@ export async function generateMetadata(): Promise<Metadata> {
 
 export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   const user = await getCurrentUser();
+  const learningProfile = user ? await getLearningProfile(user.id) : null;
 
   return (
     <html lang="zh-CN">
       <body>
-        {user ? <AppShell user={user}>{children}</AppShell> : <AuthPortal />}
+        {!user ? (
+          <AuthPortal />
+        ) : !learningProfile ? (
+          <LearningQuestionnaire initialProfile={null} phone={user.phone} />
+        ) : (
+          <AppShell user={user}>{children}</AppShell>
+        )}
       </body>
     </html>
   );

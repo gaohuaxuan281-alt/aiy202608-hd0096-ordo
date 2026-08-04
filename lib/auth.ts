@@ -59,9 +59,24 @@ export async function ensureAuthSchema() {
           updated_at INTEGER NOT NULL,
           FOREIGN KEY (user_id) REFERENCES users(id) ON UPDATE no action ON DELETE cascade
         )`),
+        d1.prepare(`CREATE TABLE IF NOT EXISTS user_learning_profiles (
+          user_id TEXT PRIMARY KEY NOT NULL,
+          grade TEXT NOT NULL,
+          completed_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          FOREIGN KEY (user_id) REFERENCES users(id) ON UPDATE no action ON DELETE cascade
+        )`),
+        d1.prepare(`CREATE TABLE IF NOT EXISTS user_subject_preferences (
+          user_id TEXT NOT NULL,
+          subject TEXT NOT NULL,
+          textbook TEXT NOT NULL,
+          updated_at INTEGER NOT NULL,
+          PRIMARY KEY (user_id, subject),
+          FOREIGN KEY (user_id) REFERENCES users(id) ON UPDATE no action ON DELETE cascade
+        )`),
       ])
       .then(() => undefined)
-      .catch((error) => {
+      .catch((error: unknown) => {
         authSchemaPromise = null;
         throw error;
       });

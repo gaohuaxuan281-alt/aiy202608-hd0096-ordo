@@ -1,4 +1,11 @@
-import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import {
+  index,
+  integer,
+  primaryKey,
+  sqliteTable,
+  text,
+  uniqueIndex,
+} from "drizzle-orm/sqlite-core";
 
 export const users = sqliteTable(
   "users",
@@ -39,3 +46,25 @@ export const userProfiles = sqliteTable("user_profiles", {
   school: text("school").notNull(),
   updatedAt: integer("updated_at").notNull(),
 });
+
+export const userLearningProfiles = sqliteTable("user_learning_profiles", {
+  userId: text("user_id")
+    .primaryKey()
+    .references(() => users.id, { onDelete: "cascade" }),
+  grade: text("grade").notNull(),
+  completedAt: integer("completed_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+});
+
+export const userSubjectPreferences = sqliteTable(
+  "user_subject_preferences",
+  {
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    subject: text("subject").notNull(),
+    textbook: text("textbook").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.userId, table.subject] })],
+);

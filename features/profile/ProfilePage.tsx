@@ -3,12 +3,19 @@
 import { FormEvent, useState } from "react";
 import { useAuthUser } from "../../components/AuthSession";
 import {
+  SUBJECTS,
+  getGrade,
+  getTextbookLabel,
+} from "../../config/learning-catalog";
+import type { LearningProfile } from "../../lib/learning-profile";
+import {
   STUDY_STAGES,
   type StudyStage,
   type UserProfile,
 } from "../../lib/profile-types";
+import { LearningQuestionnaire } from "../onboarding/LearningQuestionnaire";
 
-type DialogName = "profile" | "password" | "membership" | null;
+type DialogName = "profile" | "learning" | "password" | "membership" | null;
 
 type ApiResult = {
   error?: string;
@@ -23,13 +30,20 @@ function formatDate(timestamp: number) {
   }).format(new Date(timestamp));
 }
 
-function profileSummary(profile: UserProfile) {
-  return [profile.studyStage || "学习阶段未设置", profile.school || "学校未填写"].join(" · ");
+function profileSummary(profile: UserProfile, learningProfile: LearningProfile) {
+  return [getGrade(learningProfile.grade).label, profile.school || "学校未填写"].join(" · ");
 }
 
-export function ProfilePage({ initialProfile }: { initialProfile: UserProfile }) {
+export function ProfilePage({
+  initialProfile,
+  initialLearningProfile,
+}: {
+  initialProfile: UserProfile;
+  initialLearningProfile: LearningProfile;
+}) {
   const user = useAuthUser();
   const [profile, setProfile] = useState(initialProfile);
+  const [learningProfile, setLearningProfile] = useState(initialLearningProfile);
   const [profileDraft, setProfileDraft] = useState(initialProfile);
   const [dialog, setDialog] = useState<DialogName>(null);
   const [notice, setNotice] = useState("");
@@ -171,7 +185,7 @@ export function ProfilePage({ initialProfile }: { initialProfile: UserProfile })
             <div>
               <p>学习账号</p>
               <h2>{profile.displayName}</h2>
-              <span>{profileSummary(profile)}</span>
+              <span>{profileSummary(profile, learningProfile)}</span>
             </div>
             <button className="button compact-button profile-edit-button" type="button" onClick={() => openDialog("profile")}>编辑资料</button>
           </div>
@@ -194,6 +208,21 @@ export function ProfilePage({ initialProfile }: { initialProfile: UserProfile })
           <div className="membership-actions">
             <span className="membership-state">正常使用中</span>
             <button type="button" onClick={() => openDialog("membership")}>充值会员（演示）</button>
+          </div>
+        </article>
+
+        <article className="profile-card learning-profile-card">
+          <div className="profile-card-heading learning-profile-heading">
+            <div><span className="profile-card-icon" aria-hidden="true">学</span><div><h2>学习档案</h2><p>用于匹配任务难度、学科范围和教材内容。</p></div></div>
+            <button className="button compact-button" type="button" onClick={() => openDialog("learning")}>重新设置</button>
+          </div>
+          <div className="learning-profile-summary">
+            <div className="learning-grade-badge"><small>当前年级</small><strong>{getGrade(learningProfile.grade).label}</strong><span>{getGrade(learningProfile.grade).stage}</span></div>
+            <div className="learning-subject-list">
+              {learningProfile.subjects.map((item) => (
+                <div key={item.subject}><i aria-hidden="true">{SUBJECTS[item.subject].glyph}</i><span><strong>{SUBJECTS[item.subject].label}</strong><small>{getTextbookLabel(learningProfile.grade, item.subject, item.textbook)}</small></span></div>
+              ))}
+            </div>
           </div>
         </article>
 
@@ -223,7 +252,7 @@ export function ProfilePage({ initialProfile }: { initialProfile: UserProfile })
 
       {dialog ? (
         <div className="profile-dialog-backdrop" role="presentation" onMouseDown={(event) => event.currentTarget === event.target && closeDialog()} onKeyDown={(event) => event.key === "Escape" && closeDialog()}>
-          <section className="profile-dialog" role="dialog" aria-modal="true" aria-labelledby="profile-dialog-title">
+          <section className={`profile-dialog${dialog === "learning" ? " learning-dialog" : ""}`} role="dialog" aria-modal="true" aria-labelledby={dialog === "learning" ? "learning-questionnaire-title" : "profile-dialog-title"}>
             <button className="profile-dialog-close" type="button" onClick={closeDialog} aria-label="关闭">×</button>
 
             {dialog === "profile" ? (
@@ -237,6 +266,23 @@ export function ProfilePage({ initialProfile }: { initialProfile: UserProfile })
                 <label className="profile-form-field"><span>学校或机构</span><input value={profileDraft.school} maxLength={40} onChange={(event) => setProfileDraft((value) => ({ ...value, school: event.target.value }))} placeholder="选填" /></label>
                 <div className="profile-dialog-actions"><button className="button" type="button" onClick={closeDialog}>取消</button><button className="button primary" type="submit" disabled={busy}>{busy ? "正在保存…" : "保存资料"}</button></div>
               </form>
+            ) : null}
+
+            {dialog === "learning" ? (
+              <LearningQuestionnaire
+                variant="embedded"
+                initialProfile={learningProfile}
+                onCancel={closeDialog}
+                onComplete={(nextProfile) => {
+                  setLearningProfile(nextProfile);
+                  setProfile((current) => ({
+                    ...current,
+                    studyStage: getGrade(nextProfile.grade).label as StudyStage,
+                  }));
+                  setDialog(null);
+                  setNotice("学习档案已更新，后续计划会使用新的年级、科目和教材信息。");
+                }}
+              />
             ) : null}
 
             {dialog === "password" ? (

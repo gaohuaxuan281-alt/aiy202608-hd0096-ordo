@@ -15,6 +15,13 @@
       "when": 1785842446175,
       "tag": "0001_messy_saracen",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1785843994070,
+      "tag": "0002_high_norrin_radd",
+      "breakpoints": true
     }
   ]
 }
