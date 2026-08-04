@@ -5,6 +5,7 @@ import {
   isValidPhone,
   normalizePhone,
 } from "../../../../lib/auth";
+import { appendJournalEntryBestEffort } from "../../../../lib/journal-store";
 
 type RegisterPayload = {
   phone?: unknown;
@@ -37,6 +38,21 @@ export async function POST(request: Request) {
 
   try {
     const user = await createUser(phone, password);
+    await appendJournalEntryBestEffort(user.id, {
+      eventName: "AccountRegistered",
+      actorType: "user",
+      actorLabel: "你",
+      module: "auth",
+      moduleLabel: "账号安全",
+      action: "account_registered",
+      actionLabel: "注册账号",
+      title: "知序账号已创建",
+      summary: "手机号账号注册成功，密码内容不会写入日志。",
+      reason: "用户完成手机号与密码验证。",
+      relatedObject: { type: "account", id: "current-account", label: "账号基本资料", href: "/profile" },
+      changes: [{ field: "账号状态", before: "未注册", after: "已注册" }],
+      undoable: false,
+    });
     return Response.json(
       { ok: true, phone: user.phone },
       { status: 201, headers: { "Cache-Control": "no-store" } },
