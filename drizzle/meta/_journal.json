@@ -78,6 +78,20 @@
       "when": 1785926424474,
       "tag": "0010_lyrical_falcon",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1785934385257,
+      "tag": "0011_slim_dracula",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1785935213549,
+      "tag": "0012_lean_mastermind",
+      "breakpoints": true
     }
   ]
 }

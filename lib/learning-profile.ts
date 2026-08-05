@@ -10,6 +10,7 @@ import {
 import { getD1 } from "../db";
 import { ensureAuthSchema } from "./auth";
 import { isValidExamDate, isValidUnitRange } from "./exam-plan";
+import { isValidStudyWindow } from "./study-time";
 
 export type SubjectPreference = {
   subject: SubjectCode;
@@ -21,6 +22,9 @@ export type SubjectPreference = {
 export type LearningProfile = {
   grade: GradeCode;
   examDate: string | null;
+  dailyStudyStart: string | null;
+  dailyStudyEnd: string | null;
+  additionalNotes: string;
   subjects: SubjectPreference[];
   completedAt: number;
   updatedAt: number;
@@ -29,6 +33,9 @@ export type LearningProfile = {
 type LearningProfileRow = {
   grade: string;
   examDate: string | null;
+  dailyStudyStart: string | null;
+  dailyStudyEnd: string | null;
+  additionalNotes: string | null;
   completedAt: number;
   updatedAt: number;
 };
@@ -45,6 +52,9 @@ export function hasCompleteExamPlan(profile: LearningProfile | null): profile is
     profile &&
     profile.examDate &&
     isValidExamDate(profile.examDate) &&
+    profile.dailyStudyStart &&
+    profile.dailyStudyEnd &&
+    isValidStudyWindow(profile.dailyStudyStart, profile.dailyStudyEnd) &&
     profile.subjects.every((item) => isValidUnitRange(item.examUnitStart, item.examUnitEnd)),
   );
 }
@@ -56,6 +66,9 @@ export async function getLearningProfile(userId: string): Promise<LearningProfil
     .prepare(`SELECT
       grade,
       exam_date AS examDate,
+      daily_study_start AS dailyStudyStart,
+      daily_study_end AS dailyStudyEnd,
+      additional_notes AS additionalNotes,
       completed_at AS completedAt,
       updated_at AS updatedAt
     FROM user_learning_profiles
@@ -96,6 +109,9 @@ export async function getLearningProfile(userId: string): Promise<LearningProfil
   return {
     grade: row.grade,
     examDate: row.examDate,
+    dailyStudyStart: row.dailyStudyStart,
+    dailyStudyEnd: row.dailyStudyEnd,
+    additionalNotes: row.additionalNotes ?? "",
     subjects,
     completedAt: row.completedAt,
     updatedAt: row.updatedAt,
@@ -104,7 +120,15 @@ export async function getLearningProfile(userId: string): Promise<LearningProfil
 
 export async function saveLearningProfile(
   userId: string,
-  input: Pick<LearningProfile, "grade" | "examDate" | "subjects">,
+  input: Pick<
+    LearningProfile,
+    | "grade"
+    | "examDate"
+    | "dailyStudyStart"
+    | "dailyStudyEnd"
+    | "additionalNotes"
+    | "subjects"
+  >,
 ): Promise<LearningProfile> {
   await ensureAuthSchema();
   const d1 = getD1();
@@ -114,13 +138,26 @@ export async function saveLearningProfile(
   await d1.batch([
     d1
       .prepare(`INSERT INTO user_learning_profiles (
-        user_id, grade, exam_date, completed_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?)
+        user_id, grade, exam_date, daily_study_start, daily_study_end,
+        additional_notes, completed_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(user_id) DO UPDATE SET
         grade = excluded.grade,
         exam_date = excluded.exam_date,
+        daily_study_start = excluded.daily_study_start,
+        daily_study_end = excluded.daily_study_end,
+        additional_notes = excluded.additional_notes,
         updated_at = excluded.updated_at`)
-      .bind(userId, input.grade, input.examDate, now, now),
+      .bind(
+        userId,
+        input.grade,
+        input.examDate,
+        input.dailyStudyStart,
+        input.dailyStudyEnd,
+        input.additionalNotes,
+        now,
+        now,
+      ),
     d1.prepare("DELETE FROM user_subject_preferences WHERE user_id = ?").bind(userId),
     ...input.subjects.map((item) =>
       d1

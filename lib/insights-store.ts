@@ -7,7 +7,10 @@ import {
 } from "../config/learning-catalog";
 import { getD1 } from "../db";
 import { ensureAuthSchema } from "./auth";
-import { createLearningPlanFingerprint } from "./diagnostic-quiz";
+import {
+  createLearningPlanFingerprint,
+  createStudyPlanProfileFingerprint,
+} from "./diagnostic-quiz";
 import { getDaysUntilExam } from "./exam-plan";
 import { getLearningProfile, type LearningProfile } from "./learning-profile";
 import { getLatestStudyPlan } from "./study-plan/store";
@@ -108,7 +111,8 @@ function planMatchesLearningProfile(
 ) {
   return Boolean(
     plan.input.learningProfileFingerprint &&
-    plan.input.learningProfileFingerprint === createLearningPlanFingerprint(profile),
+    plan.input.learningProfileFingerprint ===
+      createStudyPlanProfileFingerprint(profile),
   );
 }
 

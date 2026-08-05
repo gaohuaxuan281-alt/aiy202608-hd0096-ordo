@@ -3,12 +3,16 @@ import { headers } from "next/headers";
 import { AppShell } from "../components/AppShell";
 import { AuthPortal } from "../components/AuthPortal";
 import { LearningQuestionnaire } from "../features/onboarding/LearningQuestionnaire";
+import { InitialTimelineBootstrap } from "../features/onboarding/InitialTimelineBootstrap";
 import { getCurrentUser } from "../lib/current-user";
 import {
+  createStudyPlanProfileFingerprint,
   getLatestCompletedDiagnosticQuiz,
   hasCompletedDiagnosticQuizForProfile,
 } from "../lib/diagnostic-quiz";
+import { getDateAfterDays, getDaysUntilExam } from "../lib/exam-plan";
 import { getLearningProfile, hasCompleteExamPlan } from "../lib/learning-profile";
+import { getLatestStudyPlan } from "../lib/study-plan/store";
 import "./globals.css";
 import "../features/insights/insights.css";
 
@@ -51,14 +55,32 @@ export async function generateMetadata(): Promise<Metadata> {
 
 export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   const user = await getCurrentUser();
-  const [learningProfile, diagnosticResult] = user
+  const [learningProfile, diagnosticResult, latestPlan] = user
     ? await Promise.all([
         getLearningProfile(user.id),
         getLatestCompletedDiagnosticQuiz(user.id),
+        getLatestStudyPlan(user.id),
       ])
-    : [null, null];
+    : [null, null, null];
   const onboardingComplete = hasCompleteExamPlan(learningProfile) &&
     hasCompletedDiagnosticQuizForProfile(learningProfile, diagnosticResult);
+  const studyDayCount = learningProfile?.examDate
+    ? getDaysUntilExam(learningProfile.examDate)
+    : 0;
+  const latestPlanDates = new Set(
+    latestPlan?.plan.tasks.map((task) => task.date) ?? [],
+  );
+  const latestPlanCoversStudyRange = studyDayCount >= 1 &&
+    Array.from({ length: studyDayCount }, (_, dayOffset) =>
+      getDateAfterDays(dayOffset)).every((date) => latestPlanDates.has(date));
+  const initialTimelineReady = Boolean(
+    onboardingComplete &&
+    learningProfile &&
+    latestPlan?.input.learningProfileFingerprint ===
+      createStudyPlanProfileFingerprint(learningProfile) &&
+    latestPlan.input.diagnosticAttemptId === diagnosticResult?.attemptId &&
+    latestPlanCoversStudyRange,
+  );
 
   return (
     <html lang="zh-CN">
@@ -67,6 +89,8 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
           <AuthPortal />
         ) : !onboardingComplete ? (
           <LearningQuestionnaire initialProfile={learningProfile} phone={user.phone} />
+        ) : !initialTimelineReady ? (
+          <InitialTimelineBootstrap />
         ) : (
           <AppShell user={user} learningProfile={learningProfile}>{children}</AppShell>
         )}

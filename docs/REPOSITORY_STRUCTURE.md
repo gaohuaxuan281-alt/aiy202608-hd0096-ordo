@@ -9,6 +9,8 @@
 | `components/` | 跨模块公共 UI | AppShell、登录态、全局 AI |
 | `lib/` | 服务端公共能力 | 认证、AI、资料、日志等稳定边界 |
 | `lib/study-plan/` | Timeline 与 Todo 共享领域 | `types.ts`、`store.ts`、`generator.ts` |
+| `lib/initial-study-plan.ts` | 首次问卷到 Timeline 的输入适配器 | 统一换算考试名、每日分钟数和时间边界 |
+| `lib/study-time.ts` | 每日学习时段规则 | 校验、分钟换算和展示格式 |
 | `config/` | 静态产品配置 | 导航、教材目录、AI 模块标识 |
 | `db/`、`drizzle/` | 数据库 | Schema 与顺序迁移 |
 | `docs/` | 协作规范 | 架构、接手手册、目录说明 |

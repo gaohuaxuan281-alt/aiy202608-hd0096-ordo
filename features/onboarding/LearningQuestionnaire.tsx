@@ -25,9 +25,10 @@ import type {
   DiagnosticQuizResult,
 } from "../../lib/diagnostic-quiz-types";
 import type { LearningProfile } from "../../lib/learning-profile";
+import { getStudyWindowMinutes, isValidStudyWindow } from "../../lib/study-time";
 import { DiagnosticQuizStep } from "./DiagnosticQuizStep";
 
-type QuestionnaireStep = 1 | 2 | 3 | 4 | 5 | 6;
+type QuestionnaireStep = 1 | 2 | 3 | 4 | 5 | 6 | 7;
 type UnitRangeDraft = { start: string; end: string };
 
 type LearningQuestionnaireProps = {
@@ -51,13 +52,20 @@ const STEP_COPY = [
   { eyebrow: "STEP 03 · TEXTBOOKS", title: "你正在使用哪套教材？", description: "按科目选择中国常用教材版本，后续计划会以此为准。" },
   { eyebrow: "STEP 04 · EXAM DATE", title: "计划什么时候考试？", description: "可以选择下周、两周后，或直接指定考试日期。" },
   { eyebrow: "STEP 05 · EXAM SCOPE", title: "这次考试考哪些 Unit？", description: "按每科教材选择起止 Unit/单元，例如 Unit 1–3。" },
-  { eyebrow: "STEP 06 · DIAGNOSTIC QUIZ", title: "用 10 题找到真正的复习重点", description: "题目会尽量覆盖所选 Unit 的核心知识点，结果将直接提供给 Timeline 和 AI。" },
+  { eyebrow: "STEP 06 · STUDY WINDOW", title: "你每天准备几点到几点学习？", description: "Timeline 只会在这个时间段内排任务；补充说明可填写课程、通勤或其他限制。" },
+  { eyebrow: "STEP 07 · DIAGNOSTIC QUIZ", title: "用 10 题找到真正的复习重点", description: "题目会尽量覆盖所选 Unit 的核心知识点，完成后将自动生成第一版 Timeline。" },
 ] as const;
 
 const EXAM_DATE_PRESETS = [
   { label: "下周考试", days: 7, hint: "7 天后" },
   { label: "两周后考试", days: 14, hint: "14 天后" },
   { label: "一个月后", days: 30, hint: "30 天后" },
+] as const;
+
+const STUDY_WINDOW_PRESETS = [
+  { start: "18:00", end: "20:00", label: "放学后" },
+  { start: "19:00", end: "21:00", label: "晚间学习" },
+  { start: "20:00", end: "22:00", label: "睡前复习" },
 ] as const;
 
 const UNIT_OPTIONS = Array.from({ length: MAX_EXAM_UNIT }, (_, index) => index + 1);
@@ -82,7 +90,7 @@ export function LearningQuestionnaire({
     initialProfile?.examDate &&
     isValidExamDate(initialProfile.examDate) &&
     initialProfile.subjects.every((item) => isValidUnitRange(item.examUnitStart, item.examUnitEnd))
-      ? 5
+      ? 6
       : 1,
   );
   const [grade, setGrade] = useState<GradeCode | null>(initialProfile?.grade ?? null);
@@ -104,6 +112,15 @@ export function LearningQuestionnaire({
       ) ?? [],
     ),
   );
+  const [dailyStudyStart, setDailyStudyStart] = useState(
+    initialProfile?.dailyStudyStart ?? "",
+  );
+  const [dailyStudyEnd, setDailyStudyEnd] = useState(
+    initialProfile?.dailyStudyEnd ?? "",
+  );
+  const [additionalNotes, setAdditionalNotes] = useState(
+    initialProfile?.additionalNotes ?? "",
+  );
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
@@ -111,17 +128,23 @@ export function LearningQuestionnaire({
   const [answers, setAnswers] = useState<Record<string, number>>({});
   const [quizResult, setQuizResult] = useState<DiagnosticQuizResult | null>(null);
   const [completedProfile, setCompletedProfile] = useState<LearningProfile | null>(null);
+  const [creatingTimeline, setCreatingTimeline] = useState(false);
+  const [timelineCreated, setTimelineCreated] = useState(false);
+  const [timelinePending, setTimelinePending] = useState(false);
 
   const availableSubjects = grade ? getSubjectsForGrade(grade) : [];
   const orderedSubjects = availableSubjects.filter((subject) => subjects.includes(subject));
   const copy = STEP_COPY[step - 1];
   const daysUntilExam = examDate && isValidExamDate(examDate) ? getDaysUntilExam(examDate) : null;
+  const studyWindowMinutes = getStudyWindowMinutes(dailyStudyStart, dailyStudyEnd);
 
   function resetQuiz() {
     setQuiz(null);
     setAnswers({});
     setQuizResult(null);
     setCompletedProfile(null);
+    setTimelineCreated(false);
+    setTimelinePending(false);
   }
 
   function buildProfilePayload() {
@@ -129,6 +152,9 @@ export function LearningQuestionnaire({
     return {
       grade,
       examDate,
+      dailyStudyStart,
+      dailyStudyEnd,
+      additionalNotes,
       subjects: orderedSubjects.map((subject) => ({
         subject,
         textbook: textbooks[subject],
@@ -234,11 +260,15 @@ export function LearningQuestionnaire({
       setStep(4);
       return;
     }
-    if (!isValidExamDate(examDate)) {
-      setError("请选择明天到一年以内的考试日期。");
+    if (step === 4) {
+      if (!isValidExamDate(examDate)) {
+        setError("请选择明天到一年以内的考试日期。");
+        return;
+      }
+      setStep(5);
       return;
     }
-    setStep(5);
+    if (step === 5 && validateExamScope()) setStep(6);
   }
 
   function goBack() {
@@ -262,6 +292,14 @@ export function LearningQuestionnaire({
   async function generateQuiz() {
     const profile = buildProfilePayload();
     if (!profile || !validateExamScope()) return;
+    if (!isValidStudyWindow(dailyStudyStart, dailyStudyEnd)) {
+      setError("请选择至少 60 分钟的每日学习时段，且结束时间要晚于开始时间。");
+      return;
+    }
+    if (additionalNotes.trim().length > 500) {
+      setError("补充说明不能超过 500 个字符。");
+      return;
+    }
 
     setError("");
     setSubmitting(true);
@@ -279,11 +317,53 @@ export function LearningQuestionnaire({
       setQuiz(result.quiz);
       setAnswers({});
       setQuizResult(null);
-      setStep(6);
+      setStep(7);
     } catch {
       setError("网络连接异常，请稍后重试。");
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  async function createInitialTimeline() {
+    const timelineLabel = variant === "gate"
+      ? "首个 Timeline"
+      : "与当前档案匹配的 Timeline";
+    setError("");
+    setTimelinePending(false);
+    setCreatingTimeline(true);
+    try {
+      const response = await fetch("/api/timeline/plan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ source: "onboarding" }),
+      });
+      const result = (await response.json()) as {
+        error?: string;
+        pending?: boolean;
+        plan?: unknown;
+      };
+      if (response.status === 202 || result.pending) {
+        setTimelinePending(true);
+        setError(`${timelineLabel}正在生成，稍后点击下方按钮检查结果。`);
+        return false;
+      }
+      if (!response.ok || !result.plan) {
+        setError(
+          result.error ??
+            `Quiz 已保存，但${timelineLabel}暂时没有生成，请点击下方按钮重试。`,
+        );
+        return false;
+      }
+      setTimelinePending(false);
+      setTimelineCreated(true);
+      return true;
+    } catch {
+      setTimelinePending(false);
+      setError(`Quiz 已保存，但网络异常导致${timelineLabel}尚未生成，请重试。`);
+      return false;
+    } finally {
+      setCreatingTimeline(false);
     }
   }
 
@@ -317,6 +397,11 @@ export function LearningQuestionnaire({
       }
       setCompletedProfile(result.profile);
       setQuizResult(result.result);
+      if (variant === "gate") {
+        await createInitialTimeline();
+      } else {
+        setTimelineCreated(true);
+      }
     } catch {
       setError("网络连接异常，请稍后重试。");
     } finally {
@@ -326,10 +411,11 @@ export function LearningQuestionnaire({
 
   function finishOnboarding() {
     if (!completedProfile || !quizResult) return;
+    if (!timelineCreated) return;
     if (onComplete) {
       onComplete(completedProfile, quizResult);
     } else {
-      window.location.replace("/");
+      window.location.replace(variant === "gate" ? "/timeline" : "/");
     }
   }
 
@@ -344,8 +430,8 @@ export function LearningQuestionnaire({
 
   const questionnaire = (
     <section className={`learning-questionnaire ${variant}`} aria-labelledby="learning-questionnaire-title">
-      <div className="questionnaire-progress" aria-label={`学习档案设置，第 ${step} 步，共 6 步`}>
-        {[1, 2, 3, 4, 5, 6].map((item) => (
+      <div className="questionnaire-progress" aria-label={`学习档案设置，第 ${step} 步，共 7 步`}>
+        {[1, 2, 3, 4, 5, 6, 7].map((item) => (
           <div key={item} className={item <= step ? "active" : ""} aria-current={item === step ? "step" : undefined}>
             <span>{item < step ? "✓" : item}</span>
             <i />
@@ -458,25 +544,124 @@ export function LearningQuestionnaire({
           </div>
         ) : null}
 
-        {step === 6 && quiz ? (
-          <DiagnosticQuizStep
-            quiz={quiz}
-            answers={answers}
-            result={quizResult}
-            onAnswer={(questionId, optionIndex) => {
-              setAnswers((current) => ({ ...current, [questionId]: optionIndex }));
-              setError("");
-            }}
-          />
+        {step === 6 ? (
+          <div className="study-window-step">
+            <div className="study-window-presets" role="group" aria-label="快速选择每日学习时段">
+              {STUDY_WINDOW_PRESETS.map((preset) => {
+                const selected =
+                  dailyStudyStart === preset.start && dailyStudyEnd === preset.end;
+                return (
+                  <button
+                    key={`${preset.start}-${preset.end}`}
+                    type="button"
+                    className={selected ? "selected" : ""}
+                    onClick={() => {
+                      resetQuiz();
+                      setDailyStudyStart(preset.start);
+                      setDailyStudyEnd(preset.end);
+                      setError("");
+                    }}
+                    aria-pressed={selected}
+                  >
+                    <small>{preset.label}</small>
+                    <strong>{preset.start}–{preset.end}</strong>
+                    <span>{selected ? "已选择" : "选择"}</span>
+                  </button>
+                );
+              })}
+            </div>
+            <div className="study-window-custom">
+              <label>
+                <span>开始时间</span>
+                <input
+                  type="time"
+                  value={dailyStudyStart}
+                  onChange={(event) => {
+                    resetQuiz();
+                    setDailyStudyStart(event.target.value);
+                    setError("");
+                  }}
+                  aria-label="每日学习开始时间"
+                />
+              </label>
+              <b aria-hidden="true">到</b>
+              <label>
+                <span>结束时间</span>
+                <input
+                  type="time"
+                  value={dailyStudyEnd}
+                  onChange={(event) => {
+                    resetQuiz();
+                    setDailyStudyEnd(event.target.value);
+                    setError("");
+                  }}
+                  aria-label="每日学习结束时间"
+                />
+              </label>
+            </div>
+            <label className="study-notes-field">
+              <span>
+                <strong>补充说明</strong>
+                <small>{additionalNotes.length}/500</small>
+              </span>
+              <textarea
+                rows={4}
+                maxLength={500}
+                value={additionalNotes}
+                onChange={(event) => {
+                  resetQuiz();
+                  setAdditionalNotes(event.target.value);
+                  setError("");
+                }}
+                placeholder="例如：周三有补习班；数学需要多安排；晚上 21:30 后不能使用电脑。"
+              />
+            </label>
+            <div
+              className={`study-window-summary${
+                isValidStudyWindow(dailyStudyStart, dailyStudyEnd) ? " valid" : ""
+              }`}
+            >
+              <span aria-hidden="true">时</span>
+              <div>
+                <small>每日可规划学习时段</small>
+                <strong>{dailyStudyStart || "--:--"}–{dailyStudyEnd || "--:--"}</strong>
+                <p>
+                  {studyWindowMinutes
+                    ? `共 ${Math.floor(studyWindowMinutes / 60)} 小时 ${studyWindowMinutes % 60} 分钟，Timeline 不会排到这个区间之外。`
+                    : "请选择开始和结束时间，至少保留 60 分钟。"}
+                </p>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {step === 7 && quiz ? (
+          <>
+            <DiagnosticQuizStep
+              quiz={quiz}
+              answers={answers}
+              result={quizResult}
+              onAnswer={(questionId, optionIndex) => {
+                setAnswers((current) => ({ ...current, [questionId]: optionIndex }));
+                setError("");
+              }}
+            />
+            {timelineCreated ? (
+              <div className="timeline-created-note" role="status">
+                ✓ {variant === "gate" ? "第一版" : "匹配当前档案的"} Timeline 已根据问卷与 Quiz 结果生成
+              </div>
+            ) : null}
+          </>
         ) : null}
       </div>
 
       <footer className="questionnaire-actions">
         {step > 1 && !quizResult ? <button className="button" type="button" onClick={goBack} disabled={submitting}>上一步</button> : variant === "embedded" && onCancel && !quizResult ? <button className="button" type="button" onClick={onCancel}>取消</button> : <span />}
-        {step < 5 ? <button className="button primary" type="button" onClick={goNext}>继续 <span aria-hidden="true">→</span></button> : null}
-        {step === 5 ? <button className="button primary" type="button" onClick={generateQuiz} disabled={submitting}>{submitting ? "AI 正在生成 10 题…" : "生成 10 题诊断 Quiz"}</button> : null}
-        {step === 6 && !quizResult ? <button className="button primary" type="button" onClick={submitQuiz} disabled={submitting}>{submitting ? "正在分析结果…" : `提交 Quiz（已答 ${Object.keys(answers).length}/10）`}</button> : null}
-        {step === 6 && quizResult ? <button className="button primary" type="button" onClick={finishOnboarding}>{variant === "gate" ? "使用诊断结果进入知序" : "保存并返回用户中心"} <span aria-hidden="true">→</span></button> : null}
+        {step < 6 ? <button className="button primary" type="button" onClick={goNext}>继续 <span aria-hidden="true">→</span></button> : null}
+        {step === 6 ? <button className="button primary" type="button" onClick={generateQuiz} disabled={submitting}>{submitting ? "AI 正在生成 10 题…" : "生成 10 题诊断 Quiz"}</button> : null}
+        {step === 7 && !quizResult ? <button className="button primary" type="button" onClick={submitQuiz} disabled={submitting}>{submitting ? (variant === "gate" ? "正在分析结果并生成 Timeline…" : "正在保存结果并更新 Timeline…") : `提交 Quiz（已答 ${Object.keys(answers).length}/10）`}</button> : null}
+        {step === 7 && quizResult && !timelineCreated ? <button className="button primary" type="button" onClick={createInitialTimeline} disabled={creatingTimeline}>{creatingTimeline ? "正在生成匹配 Timeline…" : timelinePending ? "检查 Timeline 生成结果" : variant === "gate" ? "重新生成首个 Timeline" : "重新生成匹配 Timeline"}</button> : null}
+        {step === 7 && quizResult && timelineCreated ? <button className="button primary" type="button" onClick={finishOnboarding}>{variant === "gate" ? "进入知序并查看计划" : "更新完成，返回用户中心"} <span aria-hidden="true">→</span></button> : null}
       </footer>
     </section>
   );
@@ -491,7 +676,7 @@ export function LearningQuestionnaire({
           <div className="onboarding-story-copy">
             <p>首次使用 · 约 5 分钟</p>
             <h2>先看考试，<br />再安排每一天。</h2>
-            <span>年级、教材、考试日期、Unit 范围和 10 题诊断结果，会成为计划拆解、动态调整和 AI 辅导的共同基础。</span>
+            <span>年级、教材、考试日期、Unit 范围、每日学习时段和 10 题诊断结果，会直接生成你的第一版 Timeline。</span>
           </div>
           <div className="onboarding-account">
             <span><i />当前账号</span>

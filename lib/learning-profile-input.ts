@@ -8,14 +8,26 @@ import {
 } from "../config/learning-catalog";
 import { isValidExamDate, isValidUnitRange } from "./exam-plan";
 import type { LearningProfile, SubjectPreference } from "./learning-profile";
+import { isValidStudyWindow } from "./study-time";
 
 type LearningProfilePayload = {
   grade?: unknown;
   examDate?: unknown;
+  dailyStudyStart?: unknown;
+  dailyStudyEnd?: unknown;
+  additionalNotes?: unknown;
   subjects?: unknown;
 };
 
-export type LearningProfileInput = Pick<LearningProfile, "grade" | "examDate" | "subjects">;
+export type LearningProfileInput = Pick<
+  LearningProfile,
+  | "grade"
+  | "examDate"
+  | "dailyStudyStart"
+  | "dailyStudyEnd"
+  | "additionalNotes"
+  | "subjects"
+>;
 
 export type LearningProfileParseResult =
   | { value: LearningProfileInput; error?: never }
@@ -34,6 +46,20 @@ export function parseLearningProfileInput(payload: unknown): LearningProfilePars
   const examDate = typeof input.examDate === "string" ? input.examDate.trim() : "";
   if (!isValidExamDate(examDate)) {
     return { error: "考试日期需要在明天到一年以内。" };
+  }
+
+  const dailyStudyStart =
+    typeof input.dailyStudyStart === "string" ? input.dailyStudyStart.trim() : "";
+  const dailyStudyEnd =
+    typeof input.dailyStudyEnd === "string" ? input.dailyStudyEnd.trim() : "";
+  if (!isValidStudyWindow(dailyStudyStart, dailyStudyEnd)) {
+    return { error: "每日学习时段至少需要 60 分钟，结束时间必须晚于开始时间。" };
+  }
+
+  const additionalNotes =
+    typeof input.additionalNotes === "string" ? input.additionalNotes.trim() : "";
+  if (additionalNotes.length > 500) {
+    return { error: "补充说明不能超过 500 个字符。" };
   }
 
   if (!Array.isArray(input.subjects) || input.subjects.length === 0) {
@@ -82,6 +108,9 @@ export function parseLearningProfileInput(payload: unknown): LearningProfilePars
     value: {
       grade: input.grade,
       examDate,
+      dailyStudyStart,
+      dailyStudyEnd,
+      additionalNotes,
       subjects,
     },
   };

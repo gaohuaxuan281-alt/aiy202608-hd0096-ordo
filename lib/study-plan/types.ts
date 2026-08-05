@@ -1,6 +1,8 @@
 export type StudyPlanGenerationInput = {
   /** Full onboarding profile fingerprint captured when this Timeline was generated. */
   learningProfileFingerprint?: string;
+  /** Diagnostic attempt whose mastery data shaped this Timeline. */
+  diagnosticAttemptId?: string;
   examName: string;
   examDate: string;
   targetScore: string;

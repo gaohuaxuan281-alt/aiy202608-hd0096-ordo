@@ -34,6 +34,30 @@ type StudyPlanRow = {
   updatedAt: number;
 };
 
+type StudyPlanGenerationStatus = "pending" | "completed" | "failed";
+
+type StudyPlanGenerationRow = StudyPlanRow & {
+  generationKey: string;
+  generationStatus: StudyPlanGenerationStatus;
+  leaseToken: string | null;
+  leaseExpiresAt: number | null;
+};
+
+export type StudyPlanGenerationReservation =
+  | {
+      state: "acquired";
+      planId: string;
+      leaseToken: string;
+    }
+  | {
+      state: "pending";
+      retryAfterSeconds: number;
+    }
+  | {
+      state: "completed";
+      plan: StoredStudyPlan;
+    };
+
 function parseStoredPlan(row: StudyPlanRow): StoredStudyPlan {
   return {
     id: row.id,
@@ -70,7 +94,7 @@ export async function getLatestStudyPlan(userId: string): Promise<StoredStudyPla
       created_at AS createdAt,
       updated_at AS updatedAt
     FROM study_plans
-    WHERE user_id = ?
+    WHERE user_id = ? AND generation_status = 'completed'
     ORDER BY updated_at DESC, created_at DESC, id DESC
     LIMIT 1`)
     .bind(userId)
@@ -97,12 +121,277 @@ export async function getStudyPlans(userId: string): Promise<StoredStudyPlan[]> 
       created_at AS createdAt,
       updated_at AS updatedAt
     FROM study_plans
-    WHERE user_id = ?
+    WHERE user_id = ? AND generation_status = 'completed'
     ORDER BY updated_at DESC, created_at DESC, id DESC`)
     .bind(userId)
     .all<StudyPlanRow>();
 
   return (rows.results ?? []).map(parseStoredPlan);
+}
+
+async function getStudyPlanGeneration(
+  userId: string,
+  generationKey: string,
+): Promise<StudyPlanGenerationRow | null> {
+  const row = await getD1()
+    .prepare(`SELECT
+      id,
+      user_id AS userId,
+      exam_name AS examName,
+      exam_date AS examDate,
+      target_score AS targetScore,
+      input_json AS inputJson,
+      plan_json AS planJson,
+      model,
+      raw_response AS rawResponse,
+      parent_plan_id AS parentPlanId,
+      source_adjustment_id AS sourceAdjustmentId,
+      generation_key AS generationKey,
+      generation_status AS generationStatus,
+      lease_token AS leaseToken,
+      lease_expires_at AS leaseExpiresAt,
+      created_at AS createdAt,
+      updated_at AS updatedAt
+    FROM study_plans
+    WHERE user_id = ? AND generation_key = ?
+    LIMIT 1`)
+    .bind(userId, generationKey)
+    .first<StudyPlanGenerationRow>();
+  return row ?? null;
+}
+
+function pendingRetryAfterSeconds(row: StudyPlanGenerationRow, now: number) {
+  if (!row.leaseExpiresAt) return 1;
+  return Math.min(5, Math.max(1, Math.ceil((row.leaseExpiresAt - now) / 1000)));
+}
+
+export async function reserveStudyPlanGeneration({
+  userId,
+  generationKey,
+  input,
+  leaseDurationMs,
+}: {
+  userId: string;
+  generationKey: string;
+  input: StudyPlanGenerationInput;
+  leaseDurationMs: number;
+}): Promise<StudyPlanGenerationReservation> {
+  await ensureAuthSchema();
+  const d1 = getD1();
+  const now = Date.now();
+  const leaseToken = crypto.randomUUID();
+  const leaseExpiresAt = now + leaseDurationMs;
+  const planId = crypto.randomUUID();
+  const inserted = await d1
+    .prepare(`INSERT OR IGNORE INTO study_plans (
+      id,
+      user_id,
+      exam_name,
+      exam_date,
+      target_score,
+      input_json,
+      plan_json,
+      model,
+      raw_response,
+      generation_key,
+      generation_status,
+      lease_token,
+      lease_expires_at,
+      created_at,
+      updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)`)
+    .bind(
+      planId,
+      userId,
+      input.examName,
+      input.examDate,
+      input.targetScore,
+      JSON.stringify(input),
+      "{}",
+      "timeline-pending",
+      "",
+      generationKey,
+      leaseToken,
+      leaseExpiresAt,
+      now,
+      now,
+    )
+    .run();
+
+  if ((inserted.meta?.changes ?? 0) > 0) {
+    return { state: "acquired", planId, leaseToken };
+  }
+
+  const existing = await getStudyPlanGeneration(userId, generationKey);
+  if (!existing) throw new Error("STUDY_PLAN_GENERATION_RESERVATION_CONFLICT");
+  if (existing.generationStatus === "completed") {
+    return { state: "completed", plan: parseStoredPlan(existing) };
+  }
+  if (
+    existing.generationStatus === "pending" &&
+    existing.leaseExpiresAt !== null &&
+    existing.leaseExpiresAt > now
+  ) {
+    return {
+      state: "pending",
+      retryAfterSeconds: pendingRetryAfterSeconds(existing, now),
+    };
+  }
+
+  const reclaimed = await d1
+    .prepare(`UPDATE study_plans
+      SET exam_name = ?,
+          exam_date = ?,
+          target_score = ?,
+          input_json = ?,
+          plan_json = ?,
+          model = ?,
+          raw_response = ?,
+          generation_status = 'pending',
+          lease_token = ?,
+          lease_expires_at = ?,
+          updated_at = ?
+      WHERE id = ?
+        AND user_id = ?
+        AND generation_key = ?
+        AND generation_status <> 'completed'
+        AND (
+          generation_status = 'failed'
+          OR lease_expires_at IS NULL
+          OR lease_expires_at <= ?
+        )`)
+    .bind(
+      input.examName,
+      input.examDate,
+      input.targetScore,
+      JSON.stringify(input),
+      "{}",
+      "timeline-pending",
+      "",
+      leaseToken,
+      leaseExpiresAt,
+      now,
+      existing.id,
+      userId,
+      generationKey,
+      now,
+    )
+    .run();
+
+  if ((reclaimed.meta?.changes ?? 0) > 0) {
+    return { state: "acquired", planId: existing.id, leaseToken };
+  }
+
+  const current = await getStudyPlanGeneration(userId, generationKey);
+  if (!current) throw new Error("STUDY_PLAN_GENERATION_RESERVATION_CONFLICT");
+  if (current.generationStatus === "completed") {
+    return { state: "completed", plan: parseStoredPlan(current) };
+  }
+  return {
+    state: "pending",
+    retryAfterSeconds: pendingRetryAfterSeconds(current, now),
+  };
+}
+
+export async function completeStudyPlanGeneration({
+  userId,
+  generationKey,
+  planId,
+  leaseToken,
+  input,
+  plan,
+  model,
+  rawResponse,
+}: {
+  userId: string;
+  generationKey: string;
+  planId: string;
+  leaseToken: string;
+  input: StudyPlanGenerationInput;
+  plan: StudyPlanDocument;
+  model: string;
+  rawResponse: string;
+}): Promise<StoredStudyPlan> {
+  await ensureAuthSchema();
+  const now = Date.now();
+  const completed = await getD1()
+    .prepare(`UPDATE study_plans
+      SET exam_name = ?,
+          exam_date = ?,
+          target_score = ?,
+          input_json = ?,
+          plan_json = ?,
+          model = ?,
+          raw_response = ?,
+          generation_status = 'completed',
+          lease_token = NULL,
+          lease_expires_at = NULL,
+          updated_at = ?
+      WHERE id = ?
+        AND user_id = ?
+        AND generation_key = ?
+        AND generation_status = 'pending'
+        AND lease_token = ?`)
+    .bind(
+      plan.examName,
+      plan.examDate,
+      plan.targetScore,
+      JSON.stringify(input),
+      JSON.stringify(plan),
+      model,
+      rawResponse,
+      now,
+      planId,
+      userId,
+      generationKey,
+      leaseToken,
+    )
+    .run();
+
+  if ((completed.meta?.changes ?? 0) > 0) {
+    const saved = await getStudyPlanGeneration(userId, generationKey);
+    if (saved?.generationStatus === "completed") return parseStoredPlan(saved);
+    throw new Error("STUDY_PLAN_GENERATION_FINALIZE_READ_FAILED");
+  }
+
+  const current = await getStudyPlanGeneration(userId, generationKey);
+  if (current?.generationStatus === "completed") return parseStoredPlan(current);
+  throw new Error("STUDY_PLAN_GENERATION_LEASE_LOST");
+}
+
+export async function failStudyPlanGeneration({
+  userId,
+  generationKey,
+  planId,
+  leaseToken,
+}: {
+  userId: string;
+  generationKey: string;
+  planId: string;
+  leaseToken: string;
+}) {
+  await ensureAuthSchema();
+  await getD1()
+    .prepare(`UPDATE study_plans
+      SET generation_status = 'failed',
+          lease_token = NULL,
+          lease_expires_at = NULL,
+          raw_response = ?,
+          updated_at = ?
+      WHERE id = ?
+        AND user_id = ?
+        AND generation_key = ?
+        AND generation_status = 'pending'
+        AND lease_token = ?`)
+    .bind(
+      "STUDY_PLAN_GENERATION_FAILED",
+      Date.now(),
+      planId,
+      userId,
+      generationKey,
+      leaseToken,
+    )
+    .run();
 }
 
 export async function saveStudyPlan({
@@ -198,7 +487,9 @@ export async function updateStudyPlanTaskStatus({
         WHERE id = ? AND user_id = ? AND updated_at = ?
           AND NOT EXISTS (
             SELECT 1 FROM study_plans AS newer
-            WHERE newer.user_id = ? AND newer.updated_at > ?
+            WHERE newer.user_id = ?
+              AND newer.generation_status = 'completed'
+              AND newer.updated_at > ?
           )`)
       .bind(
         JSON.stringify(nextPlan),
@@ -496,6 +787,7 @@ function applyOperation(
 }
 
 export async function getStudyPlanById(userId: string, planId: string) {
+  await ensureAuthSchema();
   const row = await getD1()
     .prepare(`SELECT
       id,
@@ -511,7 +803,9 @@ export async function getStudyPlanById(userId: string, planId: string) {
       source_adjustment_id AS sourceAdjustmentId,
       created_at AS createdAt,
       updated_at AS updatedAt
-    FROM study_plans WHERE id = ? AND user_id = ? LIMIT 1`)
+    FROM study_plans
+    WHERE id = ? AND user_id = ? AND generation_status = 'completed'
+    LIMIT 1`)
     .bind(planId, userId)
     .first<StudyPlanRow>();
   return row ? parseStoredPlan(row) : null;
@@ -578,10 +872,15 @@ export async function applyFeedbackAdjustment(input: ApplyAdjustmentInput) {
         )
         SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
         FROM study_plans AS base
-        WHERE base.id = ? AND base.user_id = ? AND base.updated_at = ?
+        WHERE base.id = ?
+          AND base.user_id = ?
+          AND base.generation_status = 'completed'
+          AND base.updated_at = ?
           AND NOT EXISTS (
             SELECT 1 FROM study_plans AS newer
-            WHERE newer.user_id = ? AND newer.updated_at > ?
+            WHERE newer.user_id = ?
+              AND newer.generation_status = 'completed'
+              AND newer.updated_at > ?
           )`)
         .bind(
           adjustedPlanId,

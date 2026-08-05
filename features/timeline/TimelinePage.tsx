@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useAuthUser } from "../../components/AuthSession";
 import {
   SUBJECTS,
@@ -42,15 +42,13 @@ function formatGeneratedAt(value: string) {
   }).format(new Date(value));
 }
 
-function groupTasksByDate(tasks: StudyPlanTask[]) {
-  const groups = new Map<string, StudyPlanTask[]>();
-  for (const task of tasks) {
-    const bucket = groups.get(task.date) ?? [];
-    bucket.push(task);
-    groups.set(task.date, bucket);
-  }
-  return Array.from(groups.entries()).sort(([left], [right]) => left.localeCompare(right));
-}
+type TimelineTaskEntry = {
+  key: string;
+  planId: string;
+  examName: string;
+  generatedAt: string;
+  task: StudyPlanTask;
+};
 
 export function TimelinePage() {
   const user = useAuthUser();
@@ -59,7 +57,8 @@ export function TimelinePage() {
   const [diagnostic, setDiagnostic] = useState<DiagnosticResponse["diagnostic"]>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [expandedAIResultIds, setExpandedAIResultIds] = useState<Record<string, boolean>>({});
+  const [expandedTaskIds, setExpandedTaskIds] = useState<Record<string, boolean>>({});
+  const [expandedPlanSummaryIds, setExpandedPlanSummaryIds] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     let ignore = false;
@@ -110,6 +109,31 @@ export function TimelinePage() {
   const weakTopicSummary = diagnostic?.weakTopics?.length
     ? diagnostic.weakTopics.slice(0, 6).map((item) => `${item.subjectLabel}${item.unitLabel}·${item.knowledgePoint}`).join("；")
     : "暂无已识别薄弱知识点";
+  const timelineEntries = useMemo<TimelineTaskEntry[]>(
+    () => plans
+      .flatMap((plan) => plan.plan.tasks.map((task) => ({
+        key: `${plan.id}:${task.id}`,
+        planId: plan.id,
+        examName: plan.plan.examName,
+        generatedAt: plan.plan.generatedAt,
+        task,
+      })))
+      .sort((left, right) => {
+        const leftKey = `${left.task.date} ${left.task.startTime}`;
+        const rightKey = `${right.task.date} ${right.task.startTime}`;
+        return leftKey.localeCompare(rightKey);
+      }),
+    [plans],
+  );
+  const groupedTimelineEntries = useMemo(() => {
+    const groups = new Map<string, TimelineTaskEntry[]>();
+    for (const entry of timelineEntries) {
+      const bucket = groups.get(entry.task.date) ?? [];
+      bucket.push(entry);
+      groups.set(entry.task.date, bucket);
+    }
+    return Array.from(groups.entries()).sort(([left], [right]) => left.localeCompare(right));
+  }, [timelineEntries]);
 
   function openTimelineAI() {
     window.dispatchEvent(new CustomEvent("zhixu:open-ai", {
@@ -120,8 +144,15 @@ export function TimelinePage() {
     }));
   }
 
-  function toggleAIResult(planId: string) {
-    setExpandedAIResultIds((current) => ({
+  function toggleTask(taskKey: string) {
+    setExpandedTaskIds((current) => ({
+      ...current,
+      [taskKey]: !current[taskKey],
+    }));
+  }
+
+  function togglePlanSummary(planId: string) {
+    setExpandedPlanSummaryIds((current) => ({
       ...current,
       [planId]: !current[planId],
     }));
@@ -133,7 +164,7 @@ export function TimelinePage() {
         <div>
           <p className="eyebrow">PLAN &amp; SCHEDULE</p>
           <h1>Timeline</h1>
-          <p>这里展示所有历史 Timeline。最新生成的计划会排在最上面，Todo 始终从最新一条计划自动派生。</p>
+          <p>这里把所有计划里的任务汇总成同一个总 Timeline，按时间顺序排列；每条任务默认折叠，底部再统一放各条 Timeline 的日期和摘要。</p>
         </div>
         <div className="heading-actions">
           <button className="button" type="button" onClick={openTimelineAI}>✦ 检查计划风险</button>
@@ -183,129 +214,114 @@ export function TimelinePage() {
 
       {plans.length > 0 ? (
         <section className="timeline-plan-stack">
-          {plans.map((plan) => {
-            const groupedTasks = groupTasksByDate(plan.plan.tasks);
-            const aiExpanded = Boolean(expandedAIResultIds[plan.id]);
-            return (
-              <article key={plan.id} className="planner-card timeline-plan-card">
-                <div className="planner-card-heading">
-                  <div>
-                    <small>时间轴计划</small>
-                    <h2>{plan.plan.examName}</h2>
-                  </div>
-                  <span>更新于 {formatGeneratedAt(plan.plan.generatedAt)}</span>
-                </div>
+          <article className="planner-card timeline-plan-card">
+            <div className="planner-card-heading">
+              <div>
+                <small>总时间轴</small>
+                <h2>全部任务</h2>
+              </div>
+              <span>{timelineEntries.length} 个任务块</span>
+            </div>
 
-                <section className="plan-summary-grid timeline-plan-meta">
-                  <article>
-                    <span>考试日期</span>
-                    <strong>{plan.plan.examDate}</strong>
-                    <p>目标成绩：{plan.plan.targetScore || "未设置"}</p>
-                  </article>
-                  <article>
-                    <span>计划摘要</span>
-                    <strong>{plan.plan.summary}</strong>
-                    <p>{plan.plan.explanation}</p>
-                  </article>
+            <section className="timeline-board">
+              <div className="timeline-board-head">
+                <h3>时间轴任务</h3>
+                <span>按时间顺序排列</span>
+              </div>
+              {groupedTimelineEntries.map(([date, entries]) => (
+                <section key={date} className="timeline-day-group">
+                  <header>
+                    <strong>{date}</strong>
+                    <span>{entries.reduce((sum, entry) => sum + entry.task.durationMinutes, 0)} 分钟</span>
+                  </header>
+                  <div className="timeline-task-list">
+                    {entries.map((entry) => {
+                      const expanded = Boolean(expandedTaskIds[entry.key]);
+                      return (
+                        <article key={entry.key} className={`timeline-task-card ${entry.task.priority} ${expanded ? "is-expanded" : ""}`}>
+                          <div className="timeline-task-time">
+                            <strong>{entry.task.startTime}</strong>
+                            <span>{entry.task.endTime}</span>
+                          </div>
+                          <div className="timeline-task-main">
+                            <div className="timeline-task-topline">
+                              <span>{entry.task.subject}</span>
+                              <b>{entry.task.durationMinutes} 分钟</b>
+                              <em>{entry.examName}</em>
+                            </div>
+                            <div className="timeline-task-header">
+                              <h4>{entry.task.title}</h4>
+                              <button
+                                className="timeline-collapse-button"
+                                type="button"
+                                onClick={() => toggleTask(entry.key)}
+                                aria-expanded={expanded}
+                              >
+                                {expanded ? "折叠" : "展开"}
+                              </button>
+                            </div>
+                            {expanded ? (
+                              <>
+                                <p>{entry.task.goal}</p>
+                                <small>完成标准：{entry.task.completionCriteria}</small>
+                                <small>安排原因：{entry.task.reason}</small>
+                                <small>来源计划：{entry.examName} · {formatGeneratedAt(entry.generatedAt)}</small>
+                                {entry.task.knowledgePoints.length ? (
+                                  <div className="timeline-tag-row">
+                                    {entry.task.knowledgePoints.map((point) => <span key={point}>{point}</span>)}
+                                  </div>
+                                ) : null}
+                              </>
+                            ) : null}
+                          </div>
+                        </article>
+                      );
+                    })}
+                  </div>
                 </section>
+              ))}
+            </section>
+          </article>
 
-                <section className="timeline-board">
-                  <div className="timeline-board-head">
-                    <h3>时间轴任务</h3>
-                    <span>{plan.plan.tasks.length} 个任务块</span>
-                  </div>
-                  {groupedTasks.map(([date, tasks]) => (
-                    <section key={date} className="timeline-day-group">
-                      <header>
-                        <strong>{date}</strong>
-                        <span>{tasks.reduce((sum, task) => sum + task.durationMinutes, 0)} 分钟</span>
-                      </header>
-                      <div className="timeline-task-list">
-                        {tasks.map((task) => (
-                          <article key={task.id} className={`timeline-task-card ${task.priority}`}>
-                            <div className="timeline-task-time">
-                              <strong>{task.startTime}</strong>
-                              <span>{task.endTime}</span>
-                            </div>
-                            <div className="timeline-task-main">
-                              <div className="timeline-task-topline">
-                                <span>{task.subject}</span>
-                                <b>{task.durationMinutes} 分钟</b>
-                                <em>{task.status}</em>
-                              </div>
-                              <h4>{task.title}</h4>
-                              <p>{task.goal}</p>
-                              <small>完成标准：{task.completionCriteria}</small>
-                              <small>安排原因：{task.reason}</small>
-                              {task.knowledgePoints.length ? (
-                                <div className="timeline-tag-row">
-                                  {task.knowledgePoints.map((point) => <span key={point}>{point}</span>)}
-                                </div>
-                              ) : null}
-                            </div>
-                          </article>
-                        ))}
+          <article className="planner-card timeline-plan-card">
+            <div className="planner-card-heading">
+              <div>
+                <small>AI 计划结果</small>
+                <h2>日期与摘要</h2>
+              </div>
+              <span>{plans.length} 条 Timeline</span>
+            </div>
+
+            <div className="timeline-summary-list">
+              {plans.map((plan) => {
+                const expanded = Boolean(expandedPlanSummaryIds[plan.id]);
+                return (
+                  <section key={plan.id} className="timeline-summary-item">
+                    <div className="timeline-summary-head">
+                      <div>
+                        <small>{plan.plan.examDate}</small>
+                        <strong>{plan.plan.examName}</strong>
                       </div>
-                    </section>
-                  ))}
-                </section>
-
-                <section className="timeline-ai-result">
-                  <div className="timeline-board-head">
-                    <h3>AI 计划结果</h3>
-                    <button
-                      className="timeline-collapse-button"
-                      type="button"
-                      onClick={() => toggleAIResult(plan.id)}
-                      aria-expanded={aiExpanded}
-                    >
-                      {aiExpanded ? "折叠" : "展开"}
-                    </button>
-                  </div>
-
-                  {aiExpanded ? (
-                    <div className="planner-result-body">
-                      <section className="plan-chip-section">
-                        <h3>AI 假设</h3>
-                        <div className="plan-chip-list">
-                          {(plan.plan.assumptions.length ? plan.plan.assumptions : ["当前没有额外假设。"]).map((item) => (
-                            <span key={item} className="plan-chip">{item}</span>
-                          ))}
-                        </div>
-                      </section>
-
-                      <section className="plan-info-grid">
-                        <article>
-                          <h3>风险</h3>
-                          <div className="plan-stacked-list">
-                            {plan.plan.risks.length === 0 ? <p>当前未识别出高优先级风险。</p> : plan.plan.risks.map((risk) => (
-                              <div key={risk.id} className="plan-list-item">
-                                <strong>{risk.title}</strong>
-                                <span>{risk.description}</span>
-                                <small>{risk.level.toUpperCase()}</small>
-                              </div>
-                            ))}
-                          </div>
-                        </article>
-                        <article>
-                          <h3>待确认调整</h3>
-                          <div className="plan-stacked-list">
-                            {plan.plan.pendingAdjustments.length === 0 ? <p>当前没有待确认调整。</p> : plan.plan.pendingAdjustments.map((item) => (
-                              <div key={item.id} className="plan-list-item">
-                                <strong>{item.title}</strong>
-                                <span>{item.description}</span>
-                                <small>{item.impactLabel}</small>
-                              </div>
-                            ))}
-                          </div>
-                        </article>
-                      </section>
+                      <button
+                        className="timeline-collapse-button"
+                        type="button"
+                        onClick={() => togglePlanSummary(plan.id)}
+                        aria-expanded={expanded}
+                      >
+                        {expanded ? "折叠" : "展开"}
+                      </button>
                     </div>
-                  ) : null}
-                </section>
-              </article>
-            );
-          })}
+                    {expanded ? (
+                      <div className="timeline-summary-body">
+                        <p>{plan.plan.summary}</p>
+                        <small>{plan.plan.explanation}</small>
+                      </div>
+                    ) : null}
+                  </section>
+                );
+              })}
+            </div>
+          </article>
         </section>
       ) : null}
     </>

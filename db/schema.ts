@@ -1,4 +1,6 @@
+import { sql } from "drizzle-orm";
 import {
+  check,
   index,
   integer,
   primaryKey,
@@ -53,6 +55,9 @@ export const userLearningProfiles = sqliteTable("user_learning_profiles", {
     .references(() => users.id, { onDelete: "cascade" }),
   grade: text("grade").notNull(),
   examDate: text("exam_date"),
+  dailyStudyStart: text("daily_study_start"),
+  dailyStudyEnd: text("daily_study_end"),
+  additionalNotes: text("additional_notes"),
   completedAt: integer("completed_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
 });
@@ -207,6 +212,10 @@ export const studyPlans = sqliteTable(
     rawResponse: text("raw_response").notNull(),
     parentPlanId: text("parent_plan_id"),
     sourceAdjustmentId: text("source_adjustment_id"),
+    generationKey: text("generation_key"),
+    generationStatus: text("generation_status").notNull().default("completed"),
+    leaseToken: text("lease_token"),
+    leaseExpiresAt: integer("lease_expires_at"),
     createdAt: integer("created_at").notNull(),
     updatedAt: integer("updated_at").notNull(),
   },
@@ -215,6 +224,14 @@ export const studyPlans = sqliteTable(
     index("idx_study_plans_user_exam").on(table.userId, table.examDate),
     uniqueIndex("study_plans_user_parent_unique").on(table.userId, table.parentPlanId),
     uniqueIndex("study_plans_source_adjustment_unique").on(table.sourceAdjustmentId),
+    uniqueIndex("study_plans_generation_key_unique").on(
+      table.userId,
+      table.generationKey,
+    ),
+    check(
+      "study_plans_generation_status_check",
+      sql`${table.generationStatus} in ('pending', 'completed', 'failed')`,
+    ),
   ],
 );
 

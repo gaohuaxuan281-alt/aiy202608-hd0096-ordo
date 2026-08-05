@@ -1,29 +1,26 @@
 import {
   SUBJECTS,
   getGrade,
-  getSubjectsForGrade,
-  getTextbookLabel,
-  isGradeCode,
-  isSubjectCode,
-  type SubjectCode,
 } from "../../../../config/learning-catalog";
 import { findUserByCookieHeader } from "../../../../lib/auth";
 import {
   formatExamDate,
   formatExamUnitRange,
-  isValidExamDate,
-  isValidUnitRange,
 } from "../../../../lib/exam-plan";
 import {
   getLearningProfile,
   saveLearningProfile,
-  type SubjectPreference,
 } from "../../../../lib/learning-profile";
+import { parseLearningProfileInput } from "../../../../lib/learning-profile-input";
 import { appendJournalEntryBestEffort } from "../../../../lib/journal-store";
+import { formatStudyWindow } from "../../../../lib/study-time";
 
 type LearningProfilePayload = {
   grade?: unknown;
   examDate?: unknown;
+  dailyStudyStart?: unknown;
+  dailyStudyEnd?: unknown;
+  additionalNotes?: unknown;
   subjects?: unknown;
 };
 
@@ -55,59 +52,15 @@ export async function PUT(request: Request) {
     return Response.json({ error: "请求格式不正确。" }, { status: 400 });
   }
 
-  if (typeof payload.grade !== "string" || !isGradeCode(payload.grade)) {
-    return Response.json({ error: "请选择正确的年级。" }, { status: 400 });
+  const parsed = parseLearningProfileInput(payload);
+  if ("error" in parsed) {
+    return Response.json({ error: parsed.error }, { status: 400 });
   }
-  if (!Array.isArray(payload.subjects) || payload.subjects.length === 0) {
-    return Response.json({ error: "请至少选择一个学习科目。" }, { status: 400 });
-  }
-  const examDate = typeof payload.examDate === "string" ? payload.examDate.trim() : "";
-  if (!isValidExamDate(examDate)) {
-    return Response.json({ error: "考试日期需要在明天到一年以内。" }, { status: 400 });
-  }
-
-  const allowedSubjects = getSubjectsForGrade(payload.grade);
-  const subjects: SubjectPreference[] = [];
-  const usedSubjects = new Set<SubjectCode>();
-
-  for (const item of payload.subjects) {
-    if (!item || typeof item !== "object") {
-      return Response.json({ error: "科目信息格式不正确。" }, { status: 400 });
-    }
-    const subject = "subject" in item ? item.subject : undefined;
-    const textbook = "textbook" in item ? item.textbook : undefined;
-    const examUnitStart = "examUnitStart" in item ? item.examUnitStart : undefined;
-    const examUnitEnd = "examUnitEnd" in item ? item.examUnitEnd : undefined;
-    if (typeof subject !== "string" || !isSubjectCode(subject)) {
-      return Response.json({ error: "请选择正确的学习科目。" }, { status: 400 });
-    }
-    if (!allowedSubjects.includes(subject) || usedSubjects.has(subject)) {
-      return Response.json({ error: "所选科目与当前年级不匹配。" }, { status: 400 });
-    }
-    if (
-      typeof textbook !== "string" ||
-      !getTextbookLabel(payload.grade, subject, textbook)
-    ) {
-      return Response.json({ error: "请为每个科目选择正确的教材版本。" }, { status: 400 });
-    }
-    if (
-      typeof examUnitStart !== "number" ||
-      typeof examUnitEnd !== "number" ||
-      !isValidUnitRange(examUnitStart, examUnitEnd)
-    ) {
-      return Response.json({ error: `请为${SUBJECTS[subject].label}选择正确的考试 Unit 范围。` }, { status: 400 });
-    }
-    usedSubjects.add(subject);
-    subjects.push({ subject, textbook, examUnitStart, examUnitEnd });
-  }
+  const input = parsed.value;
 
   try {
     const previousProfile = await getLearningProfile(user.id);
-    const profile = await saveLearningProfile(user.id, {
-      grade: payload.grade,
-      examDate,
-      subjects,
-    });
+    const profile = await saveLearningProfile(user.id, input);
     const previousSubjects = previousProfile
       ? previousProfile.subjects.map((item) => SUBJECTS[item.subject].label).join("、")
       : "未设置";
@@ -130,6 +83,30 @@ export async function PUT(request: Request) {
       { field: "教材设置", before: previousProfile ? "已配置" : "未设置", after: `${profile.subjects.length} 科已配置` },
       previousProfile?.examDate !== profile.examDate
         ? { field: "计划考试日期", before: previousProfile?.examDate ? formatExamDate(previousProfile.examDate) : "未设置", after: formatExamDate(profile.examDate ?? "") }
+        : null,
+      !previousProfile ||
+      previousProfile.dailyStudyStart !== profile.dailyStudyStart ||
+      previousProfile.dailyStudyEnd !== profile.dailyStudyEnd
+        ? {
+            field: "每日学习时段",
+            before: previousProfile
+              ? formatStudyWindow(
+                  previousProfile.dailyStudyStart,
+                  previousProfile.dailyStudyEnd,
+                )
+              : "未设置",
+            after: formatStudyWindow(
+              profile.dailyStudyStart,
+              profile.dailyStudyEnd,
+            ),
+          }
+        : null,
+      previousProfile?.additionalNotes !== profile.additionalNotes
+        ? {
+            field: "补充说明",
+            before: previousProfile?.additionalNotes || "未填写",
+            after: profile.additionalNotes || "未填写",
+          }
         : null,
       previousScope !== nextScope
         ? { field: "考试范围", before: previousScope, after: nextScope }

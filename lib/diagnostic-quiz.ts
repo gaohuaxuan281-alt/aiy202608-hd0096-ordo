@@ -66,8 +66,10 @@ type QuizQuestionRow = {
   isCorrect: number | null;
 };
 
-export function createLearningPlanFingerprint(input: LearningProfileInput | LearningProfile) {
-  return JSON.stringify({
+function createAcademicProfileFingerprintPayload(
+  input: LearningProfileInput | LearningProfile,
+) {
+  return {
     grade: input.grade,
     examDate: input.examDate,
     subjects: [...input.subjects]
@@ -78,6 +80,23 @@ export function createLearningPlanFingerprint(input: LearningProfileInput | Lear
         examUnitStart: item.examUnitStart,
         examUnitEnd: item.examUnitEnd,
       })),
+  };
+}
+
+export function createLearningPlanFingerprint(
+  input: LearningProfileInput | LearningProfile,
+) {
+  return JSON.stringify(createAcademicProfileFingerprintPayload(input));
+}
+
+export function createStudyPlanProfileFingerprint(
+  input: LearningProfileInput | LearningProfile,
+) {
+  return JSON.stringify({
+    ...createAcademicProfileFingerprintPayload(input),
+    dailyStudyStart: input.dailyStudyStart,
+    dailyStudyEnd: input.dailyStudyEnd,
+    additionalNotes: input.additionalNotes.trim(),
   });
 }
 

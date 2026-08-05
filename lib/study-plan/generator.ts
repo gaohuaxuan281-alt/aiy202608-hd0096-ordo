@@ -1,5 +1,6 @@
 import type { LearningProfile } from "../learning-profile";
 import type { DiagnosticQuizWeakTopic } from "../diagnostic-quiz-types";
+import { getDateAfterDays, getDaysUntilExam } from "../exam-plan";
 import type { UserProfile } from "../profile-types";
 import type {
   StudyPlanAdjustment,
@@ -77,8 +78,8 @@ export const TIMELINE_PLAN_JSON_SCHEMA = {
     },
     tasks: {
       type: "array",
-      minItems: 6,
-      maxItems: 6,
+      minItems: 1,
+      maxItems: 18,
       items: {
         type: "object",
         additionalProperties: false,
@@ -94,7 +95,7 @@ export const TIMELINE_PLAN_JSON_SCHEMA = {
           "reason",
         ],
         properties: {
-          dayOffset: { type: "integer", enum: [0, 1] },
+          dayOffset: { type: "integer", minimum: 0, maximum: 365 },
           durationMinutes: { type: "number" },
           subject: { type: "string" },
           title: { type: "string" },
@@ -219,22 +220,18 @@ function formatMinutesToClock(totalMinutes: number) {
   return `${hours.toString().padStart(2, "0")}:${minutes.toString().padStart(2, "0")}`;
 }
 
-function toDateKey(date: Date) {
-  return [
-    date.getFullYear(),
-    `${date.getMonth() + 1}`.padStart(2, "0"),
-    `${date.getDate()}`.padStart(2, "0"),
-  ].join("-");
+function getStudyDayCount(examDate: string) {
+  const daysUntilExam = getDaysUntilExam(examDate);
+  return Number.isFinite(daysUntilExam)
+    ? Math.min(366, Math.max(1, daysUntilExam))
+    : 1;
 }
 
-function addDays(baseDate: Date, days: number) {
-  const result = new Date(baseDate);
-  result.setDate(baseDate.getDate() + days);
-  return result;
-}
-
-function normalizeDayOffset(value: unknown, fallback: number) {
-  return value === 1 ? 1 : value === 0 ? 0 : fallback;
+function normalizeDayOffset(value: unknown, maxDayOffset: number, fallback: number) {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return Math.min(maxDayOffset, Math.max(0, fallback));
+  }
+  return Math.min(maxDayOffset, Math.max(0, Math.round(value)));
 }
 
 function normalizeDurationMinutes(value: unknown, fallback: number) {
@@ -272,6 +269,9 @@ export function buildTimelineGenerationInstructions({
   input: StudyPlanGenerationInput;
   diagnosticWeakTopics: DiagnosticQuizWeakTopic[];
 }) {
+  const studyDayCount = getStudyDayCount(input.examDate);
+  const lastStudyDayOffset = studyDayCount - 1;
+  const requestedBlueprintCount = Math.min(18, studyDayCount);
   const subjectSummary = subjects
     .map((item) => {
       const weakTopicSummary = item.weakTopics.length ? `；优先薄弱点：${item.weakTopics.join("、")}` : "";
@@ -300,7 +300,7 @@ export function buildTimelineGenerationInstructions({
 - 考试日期：${input.examDate}
 - 目标成绩：${input.targetScore || "未填写"}
 - 每日可用学习时间：${input.dailyAvailableMinutes} 分钟
-- 建议开学时间：${input.preferredStartTime}
+- 建议开始学习时间：${input.preferredStartTime}
 - 不可用时间：${input.unavailableWindows || "未填写"}
 - 固定安排：${input.fixedCommitments || "未填写"}
 - 必须保留的硬边界：${input.mustKeepBoundaries || "未填写"}
@@ -354,11 +354,11 @@ export function buildTimelineGenerationInstructions({
 }
 
 额外要求：
-- 首版只输出最近 2 天的可执行计划，使用 dayOffset 表示：今天是 0，明天是 1。
-- tasks 必须刚好输出 6 个，不多不少。
+- 学习日期必须从今天开始，一直覆盖到考试前一天，共 ${studyDayCount} 天；dayOffset 从 0 到 ${lastStudyDayOffset}。
+- tasks 输出 ${requestedBlueprintCount} 个任务蓝图。若总天数不超过 18 天，每个 dayOffset 都必须至少出现一次；超过 18 天时要均匀覆盖前期、中期和考前阶段，系统会据此补齐每天任务。
 - 任务覆盖当前已选科目中的关键科目。
-- 如果存在诊断 Quiz 薄弱点，至少 4 个任务要直接围绕这些薄弱点或所在单元。
-- 每天安排 2 到 4 个任务。
+- 如果存在诊断 Quiz 薄弱点，优先让任务直接围绕这些薄弱点或所在单元。
+- 每天至少安排 1 个任务，任务总时长不要明显超过每日可用时间。
 - 每天任务总时长不要明显超过每日可用时间。
 - 所有字段尽量简洁：
 - title 控制在 16 个字以内。
@@ -400,19 +400,17 @@ export function parseStudyPlanFromAI({
     throw new Error(`AI 返回的计划不是合法 JSON：${detail}`);
   }
   const tasksSource = Array.isArray(payload.tasks) ? payload.tasks : [];
-  const baseDate = new Date();
-  baseDate.setHours(0, 0, 0, 0);
-  const groupedBlueprints = [0, 1].map((dayOffset) => (
-    tasksSource.flatMap((task, index) => {
+  const studyDayCount = getStudyDayCount(examDate);
+  const maxDayOffset = studyDayCount - 1;
+  const blueprints = tasksSource.flatMap((task, index) => {
       if (!task || typeof task !== "object") return [];
       const entry = task as RawStudyPlanTaskPayload;
-      const fallbackDayOffset = index < 3 ? 0 : 1;
-      if (normalizeDayOffset(entry.dayOffset, fallbackDayOffset) !== dayOffset) return [];
       const title = sanitizeText(entry.title, "");
       const subject = sanitizeText(entry.subject, "");
       if (!title || !subject) return [];
       return [{
         index,
+        dayOffset: normalizeDayOffset(entry.dayOffset, maxDayOffset, index),
         subject,
         title,
         knowledgePoints: parseStringArray(entry.knowledgePoints).slice(0, 2),
@@ -422,22 +420,47 @@ export function parseStudyPlanFromAI({
         reason: sanitizeText(entry.reason, "根据考试节奏、科目优先级和可用时间安排。"),
         durationMinutes: normalizeDurationMinutes(entry.durationMinutes, 45),
       }];
-    })
-  ));
+    });
+  const groupedBlueprints = Array.from({ length: studyDayCount }, (_, dayOffset) => {
+    const directEntries = blueprints.filter((entry) => entry.dayOffset === dayOffset);
+    if (directEntries.length > 0) return directEntries;
+    if (blueprints.length === 0) return [];
+    const template = blueprints[dayOffset % blueprints.length]!;
+    return [{
+      ...template,
+      index: blueprints.length + dayOffset,
+      dayOffset,
+      reason: `${template.reason}（补齐考试前每日复习安排。）`,
+    }];
+  });
 
   const tasks = groupedBlueprints
     .flatMap((dayEntries, dayOffset) => {
       if (dayEntries.length === 0) return [];
-      const date = toDateKey(addDays(baseDate, dayOffset));
+      const date = getDateAfterDays(dayOffset);
       const requestedDurations = dayEntries.map((entry) => entry.durationMinutes);
       const allocatedDurations = allocateDurations(dailyAvailableMinutes, requestedDurations);
+      const scheduledStudyMinutes = allocatedDurations.reduce(
+        (total, duration) => total + duration,
+        0,
+      );
+      const breakCount = Math.max(0, dayEntries.length - 1);
+      const breakMinutes = breakCount > 0
+        ? Math.min(
+            10,
+            Math.floor(
+              Math.max(0, dailyAvailableMinutes - scheduledStudyMinutes) /
+                breakCount,
+            ),
+          )
+        : 0;
       let cursor = parseClockToMinutes(normalizeTime(preferredStartTime, "19:00"));
 
       return dayEntries.map((entry, index) => {
         const durationMinutes = allocatedDurations[index] ?? 45;
         const startTime = formatMinutesToClock(cursor);
         const endTime = formatMinutesToClock(cursor + durationMinutes);
-        cursor += durationMinutes + 10;
+        cursor += durationMinutes + breakMinutes;
 
         return {
           id: `task-${entry.index + 1}-${crypto.randomUUID()}`,
@@ -522,8 +545,7 @@ export function buildFallbackStudyPlan({
   subjects: SubjectDescriptor[];
   diagnosticWeakTopics: DiagnosticQuizWeakTopic[];
 }): StudyPlanDocument {
-  const baseDate = new Date();
-  baseDate.setHours(0, 0, 0, 0);
+  const studyDayCount = getStudyDayCount(examDate);
   const normalizedSubjects = subjects.length > 0
     ? subjects
     : [{ subject: "综合复习", textbook: "通用资料", examScope: "当前考试范围", weakTopics: [] }];
@@ -533,13 +555,14 @@ export function buildFallbackStudyPlan({
     if (!existing.includes(topic.knowledgePoint)) existing.push(topic.knowledgePoint);
     weakTopicsBySubject.set(topic.subjectLabel, existing);
   }
-  const taskTemplates = Array.from({ length: 6 }, (_, index) => {
+  const taskTemplates = Array.from({ length: studyDayCount }, (_, index) => {
     const descriptor = normalizedSubjects[index % normalizedSubjects.length]!;
-    const phase = index % 3;
+    const progress = studyDayCount === 1 ? 1 : index / (studyDayCount - 1);
+    const phase = progress < 0.45 ? 0 : progress < 0.8 ? 1 : 2;
     const weakTopics = weakTopicsBySubject.get(descriptor.subject) ?? descriptor.weakTopics;
     const primaryWeakTopic = weakTopics[0] ?? `${descriptor.subject}核心点`;
     return {
-      dayOffset: index < 3 ? 0 : 1,
+      dayOffset: index,
       subject: descriptor.subject,
       title: phase === 0
         ? `${descriptor.subject}薄弱梳理`
@@ -560,19 +583,19 @@ export function buildFallbackStudyPlan({
   });
 
   const planText = JSON.stringify({
-    summary: `已为 ${examName} 生成首版两日复习 Timeline。`,
-    explanation: "先围绕考试范围和诊断薄弱点梳理重点，再训练与复盘，保证 Todo 可以直接从 Timeline 派生。",
-    assumptions: ["默认今晚和明天都能按填写时间开始学习。"],
+    summary: `已为 ${examName} 生成从今天到考试前一天的 ${studyDayCount} 日复习 Timeline。`,
+    explanation: "从今天开始逐日安排薄弱梳理、专项训练和考前复盘，保证 Todo 可以直接从 Timeline 派生。",
+    assumptions: ["默认每天都能按填写的学习时段执行至少一项复习任务。"],
     risks: [{
       level: "medium",
       title: "真实可用时间可能波动",
-      description: "若临时安排增加，第二天任务可能需要再次压缩。",
+      description: "若临时安排增加，对应日期的任务可能需要再次压缩。",
     }],
     pendingAdjustments: [{
       title: "确认固定安排",
-      description: "如果明天有额外课程或出行，需要重新确认可用时段。",
+      description: "如果后续日期有额外课程或出行，需要重新确认可用时段。",
       reason: "避免 Timeline 与真实时间冲突。",
-      impactLabel: "明天",
+      impactLabel: "考前",
     }],
     tasks: taskTemplates,
   });

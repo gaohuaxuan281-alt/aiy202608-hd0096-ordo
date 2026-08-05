@@ -63,6 +63,9 @@ export async function ensureAuthSchema() {
           user_id TEXT PRIMARY KEY NOT NULL,
           grade TEXT NOT NULL,
           exam_date TEXT,
+          daily_study_start TEXT,
+          daily_study_end TEXT,
+          additional_notes TEXT,
           completed_at INTEGER NOT NULL,
           updated_at INTEGER NOT NULL,
           FOREIGN KEY (user_id) REFERENCES users(id) ON UPDATE no action ON DELETE cascade
@@ -162,6 +165,11 @@ export async function ensureAuthSchema() {
           raw_response TEXT NOT NULL,
           parent_plan_id TEXT,
           source_adjustment_id TEXT,
+          generation_key TEXT,
+          generation_status TEXT NOT NULL DEFAULT 'completed'
+            CHECK (generation_status IN ('pending', 'completed', 'failed')),
+          lease_token TEXT,
+          lease_expires_at INTEGER,
           created_at INTEGER NOT NULL,
           updated_at INTEGER NOT NULL,
           FOREIGN KEY (user_id) REFERENCES users(id) ON UPDATE no action ON DELETE cascade
@@ -257,6 +265,15 @@ export async function ensureAuthSchema() {
         if (!learningNames.has("exam_date")) {
           migrations.push(d1.prepare("ALTER TABLE user_learning_profiles ADD COLUMN exam_date TEXT"));
         }
+        if (!learningNames.has("daily_study_start")) {
+          migrations.push(d1.prepare("ALTER TABLE user_learning_profiles ADD COLUMN daily_study_start TEXT"));
+        }
+        if (!learningNames.has("daily_study_end")) {
+          migrations.push(d1.prepare("ALTER TABLE user_learning_profiles ADD COLUMN daily_study_end TEXT"));
+        }
+        if (!learningNames.has("additional_notes")) {
+          migrations.push(d1.prepare("ALTER TABLE user_learning_profiles ADD COLUMN additional_notes TEXT"));
+        }
         if (!subjectNames.has("exam_unit_start")) {
           migrations.push(d1.prepare("ALTER TABLE user_subject_preferences ADD COLUMN exam_unit_start INTEGER"));
         }
@@ -269,10 +286,26 @@ export async function ensureAuthSchema() {
         if (!studyPlanNames.has("source_adjustment_id")) {
           migrations.push(d1.prepare("ALTER TABLE study_plans ADD COLUMN source_adjustment_id TEXT"));
         }
+        if (!studyPlanNames.has("generation_key")) {
+          migrations.push(d1.prepare("ALTER TABLE study_plans ADD COLUMN generation_key TEXT"));
+        }
+        if (!studyPlanNames.has("generation_status")) {
+          migrations.push(d1.prepare(
+            `ALTER TABLE study_plans ADD COLUMN generation_status TEXT NOT NULL DEFAULT 'completed'
+              CHECK (generation_status IN ('pending', 'completed', 'failed'))`,
+          ));
+        }
+        if (!studyPlanNames.has("lease_token")) {
+          migrations.push(d1.prepare("ALTER TABLE study_plans ADD COLUMN lease_token TEXT"));
+        }
+        if (!studyPlanNames.has("lease_expires_at")) {
+          migrations.push(d1.prepare("ALTER TABLE study_plans ADD COLUMN lease_expires_at INTEGER"));
+        }
         if (migrations.length) await d1.batch(migrations);
         await d1.batch([
           d1.prepare("CREATE UNIQUE INDEX IF NOT EXISTS study_plans_user_parent_unique ON study_plans (user_id, parent_plan_id)"),
           d1.prepare("CREATE UNIQUE INDEX IF NOT EXISTS study_plans_source_adjustment_unique ON study_plans (source_adjustment_id)"),
+          d1.prepare("CREATE UNIQUE INDEX IF NOT EXISTS study_plans_generation_key_unique ON study_plans (user_id, generation_key)"),
         ]);
       })
       .catch((error: unknown) => {

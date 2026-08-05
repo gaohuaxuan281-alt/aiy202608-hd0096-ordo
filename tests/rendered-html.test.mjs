@@ -24,11 +24,15 @@ test("unauthenticated visitors see the phone login gateway and new users enter o
   assert.match(questionnaire, /你正在使用哪套教材/);
   assert.match(questionnaire, /计划什么时候考试/);
   assert.match(questionnaire, /这次考试考哪些 Unit/);
+  assert.match(questionnaire, /你每天准备几点到几点学习/);
+  assert.match(questionnaire, /补充说明/);
   assert.match(questionnaire, /下周考试/);
   assert.match(questionnaire, /Unit 1–3/);
   assert.match(questionnaire, /用 10 题找到真正的复习重点/);
-  assert.match(questionnaire, /共 6 步/);
+  assert.match(questionnaire, /共 7 步/);
   assert.match(questionnaire, /api\/onboarding\/diagnostic-quiz\/generate/);
+  assert.match(questionnaire, /api\/timeline\/plan/);
+  assert.match(layout, /<InitialTimelineBootstrap \/>/);
 });
 
 test("learning catalog and exam plan cover grade one through senior three with durable textbook unit ranges", async () => {
@@ -47,10 +51,7 @@ test("learning catalog and exam plan cover grade one through senior three with d
   assert.match(catalog, /人教 PEP 版/);
   assert.match(catalog, /人教 A 版/);
   assert.match(catalog, /统编版/);
-  assert.match(learningRoute, /getSubjectsForGrade/);
-  assert.match(learningRoute, /getTextbookLabel/);
-  assert.match(learningRoute, /isValidExamDate/);
-  assert.match(learningRoute, /isValidUnitRange/);
+  assert.match(learningRoute, /parseLearningProfileInput/);
   assert.match(questionnaire, /examUnitStart/);
   assert.match(questionnaire, /examUnitEnd/);
   assert.match(examPlan, /MAX_EXAM_UNIT = 20/);
@@ -61,6 +62,68 @@ test("learning catalog and exam plan cover grade one through senior three with d
   assert.match(schema, /examUnitStart: integer\("exam_unit_start"\)/);
   assert.match(migration, /ADD `exam_date` text/);
   assert.match(migration, /ADD `exam_unit_start` integer/);
+});
+
+test("onboarding stores the study window and recovers initial timeline creation", async () => {
+  const [
+    questionnaire,
+    recovery,
+    profileService,
+    profileInput,
+    initialPlan,
+    timelineRoute,
+    schema,
+    runtimeSchema,
+    migration,
+    generator,
+    layout,
+    planStore,
+    generationMigration,
+  ] = await Promise.all([
+    readFile(new URL("../features/onboarding/LearningQuestionnaire.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../features/onboarding/InitialTimelineBootstrap.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../lib/learning-profile.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/learning-profile-input.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/initial-study-plan.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/timeline/plan/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../db/schema.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/auth.ts", import.meta.url), "utf8"),
+    readFile(new URL("../drizzle/0011_slim_dracula.sql", import.meta.url), "utf8"),
+    readFile(new URL("../lib/study-plan/generator.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../lib/study-plan/store.ts", import.meta.url), "utf8"),
+    readFile(new URL("../drizzle/0012_lean_mastermind.sql", import.meta.url), "utf8"),
+  ]);
+
+  for (const field of ["dailyStudyStart", "dailyStudyEnd", "additionalNotes"]) {
+    assert.match(questionnaire, new RegExp(field));
+    assert.match(profileService, new RegExp(field));
+    assert.match(profileInput, new RegExp(field));
+  }
+  assert.match(questionnaire, /source: "onboarding"/);
+  assert.match(questionnaire, /重新生成首个 Timeline/);
+  assert.match(recovery, /source: "onboarding"/);
+  assert.match(recovery, /window\.location\.replace\("\/timeline"\)/);
+  assert.match(initialPlan, /dailyAvailableMinutes/);
+  assert.match(initialPlan, /任务不得超出这个区间/);
+  assert.match(timelineRoute, /hasCompletedDiagnosticQuizForProfile/);
+  assert.match(timelineRoute, /reserveStudyPlanGeneration/);
+  assert.match(timelineRoute, /status: 202/);
+  assert.match(timelineRoute, /retryAfterMs/);
+  assert.match(planStore, /INSERT OR IGNORE INTO study_plans/);
+  assert.match(planStore, /generation_status = 'completed'/);
+  assert.match(planStore, /AND lease_token = \?/);
+  assert.match(schema, /generationKey: text\("generation_key"\)/);
+  assert.match(schema, /generationStatus: text\("generation_status"\).*default\("completed"\)/);
+  assert.match(generationMigration, /ADD `generation_key` text/);
+  assert.match(generationMigration, /study_plans_generation_key_unique/);
+  assert.match(schema, /dailyStudyStart: text\("daily_study_start"\)/);
+  assert.match(runtimeSchema, /ALTER TABLE user_learning_profiles ADD COLUMN daily_study_start TEXT/);
+  assert.match(migration, /ADD `daily_study_start` text/);
+  assert.match(migration, /ADD `daily_study_end` text/);
+  assert.match(migration, /ADD `additional_notes` text/);
+  assert.match(generator, /const breakMinutes =/);
+  assert.match(layout, /initialTimelineReady/);
 });
 
 test("onboarding diagnostic quiz generates 10 AI questions and stores timeline-ready mastery data", async () => {
@@ -415,7 +478,7 @@ test("progress insights aggregates authenticated real data without inventing lea
   assert.match(store, /createLearningPlanFingerprint/);
   assert.match(store, /planMatchesLearningProfile/);
   assert.match(store, /profile_fingerprint = \?/);
-  assert.match(timelineRoute, /learningProfileFingerprint: createLearningPlanFingerprint\(learningProfile\)/);
+  assert.match(timelineRoute, /learningProfileFingerprint: createStudyPlanProfileFingerprint\(learningProfile\)/);
   assert.match(planTypes, /learningProfileFingerprint\?: string/);
   assert.match(store, /diagnostic_quiz_attempts/);
   assert.match(store, /ai_conversations/);

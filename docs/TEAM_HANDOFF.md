@@ -39,7 +39,7 @@ git status
 
 本地使用 AI 功能前，将 `.env.example` 复制为 `.env.local`，由项目管理员提供并写入开发密钥。真实密钥不得通过聊天、邮件、代码提交或 PR 传递。
 
-首次学习问卷保存 `grade`、`examDate` 以及每科的 `textbook`、`examUnitStart`、`examUnitEnd`，并在最后生成和完成 10 题诊断 Quiz。Timeline、Todo、AI Tutor 和首页需要考试上下文时，统一读取 `LearningProfile`；不要在各模块重复创建考试日期或 Unit 范围字段。旧账号会在进入应用前被引导补齐新增信息和诊断数据。
+首次学习问卷保存 `grade`、`examDate`、`dailyStudyStart`、`dailyStudyEnd`、`additionalNotes`，以及每科的 `textbook`、`examUnitStart`、`examUnitEnd`，并在最后生成和完成 10 题诊断 Quiz。Quiz 完成后会自动调用 Timeline 接口生成第一版计划；输入转换统一使用 `lib/initial-study-plan.ts`，不要复制每日时长或边界计算。根布局会恢复“Quiz 已保存但 Timeline 生成失败”的账号。Timeline、Todo、AI Tutor 和首页需要考试上下文时，统一读取 `LearningProfile`。
 
 ## 诊断 Quiz 数据接入
 

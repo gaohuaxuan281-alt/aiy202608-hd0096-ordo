@@ -5,11 +5,16 @@ import {
 } from "../../../../config/learning-catalog";
 import { findUserByCookieHeader } from "../../../../lib/auth";
 import {
-  createLearningPlanFingerprint,
+  createStudyPlanProfileFingerprint,
   getLatestCompletedDiagnosticQuiz,
+  hasCompletedDiagnosticQuizForProfile,
 } from "../../../../lib/diagnostic-quiz";
 import { formatExamUnitRange, getDaysUntilExam } from "../../../../lib/exam-plan";
-import { getLearningProfile } from "../../../../lib/learning-profile";
+import {
+  getLearningProfile,
+  hasCompleteExamPlan,
+} from "../../../../lib/learning-profile";
+import { buildInitialStudyPlanInput } from "../../../../lib/initial-study-plan";
 import { AIProviderError, requestOpenAIStructuredResponse } from "../../../../lib/openai";
 import { getUserProfile } from "../../../../lib/profile";
 import {
@@ -18,16 +23,46 @@ import {
   parseStudyPlanFromAI,
   TIMELINE_PLAN_JSON_SCHEMA,
 } from "../../../../lib/study-plan/generator";
-import { getStudyPlans, saveStudyPlan } from "../../../../lib/study-plan/store";
+import {
+  completeStudyPlanGeneration,
+  failStudyPlanGeneration,
+  getStudyPlans,
+  reserveStudyPlanGeneration,
+  saveStudyPlan,
+} from "../../../../lib/study-plan/store";
 import type { StudyPlanGenerationInput } from "../../../../lib/study-plan/types";
 
 const MIN_DAILY_MINUTES = 30;
 const MAX_DAILY_MINUTES = 12 * 60;
+const ONBOARDING_GENERATION_LEASE_MS = 10 * 60 * 1000;
 
-type TimelinePlanRequest = Partial<StudyPlanGenerationInput>;
+type TimelinePlanRequest = Partial<StudyPlanGenerationInput> & {
+  source?: unknown;
+};
 
 function badRequest(message: string) {
   return Response.json({ error: message }, { status: 400 });
+}
+
+async function createOnboardingGenerationKey({
+  userId,
+  profileFingerprint,
+  diagnosticAttemptId,
+}: {
+  userId: string;
+  profileFingerprint: string;
+  diagnosticAttemptId: string;
+}) {
+  const encoded = new TextEncoder().encode(
+    [userId, profileFingerprint, diagnosticAttemptId].join("\0"),
+  );
+  const source = encoded.buffer.slice(
+    encoded.byteOffset,
+    encoded.byteOffset + encoded.byteLength,
+  ) as ArrayBuffer;
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", source));
+  const hash = Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join("");
+  return `onboarding-timeline:v2:${hash}`;
 }
 
 function providerErrorResponse(error: AIProviderError) {
@@ -168,15 +203,69 @@ export async function POST(request: Request) {
   } catch {
     return badRequest("请求格式不正确。");
   }
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return badRequest("请求格式不正确。");
+  }
 
-  const input = validateInput(payload);
+  let onboardingContext: {
+    profile: NonNullable<Awaited<ReturnType<typeof getLearningProfile>>>;
+    diagnosticResult: NonNullable<
+      Awaited<ReturnType<typeof getLatestCompletedDiagnosticQuiz>>
+    >;
+    generationKey: string;
+  } | null = null;
+  let input: StudyPlanGenerationInput | Response;
+  if (payload.source === "onboarding") {
+    const [profile, diagnosticResult] = await Promise.all([
+      getLearningProfile(user.id),
+      getLatestCompletedDiagnosticQuiz(user.id),
+    ]);
+    if (!hasCompleteExamPlan(profile)) {
+      return Response.json(
+        { error: "请先补充完整的考试信息和每日学习时段。" },
+        { status: 400 },
+      );
+    }
+    if (
+      !diagnosticResult ||
+      !hasCompletedDiagnosticQuizForProfile(profile, diagnosticResult)
+    ) {
+      return Response.json(
+        { error: "请先完成与当前考试范围匹配的诊断 Quiz。" },
+        { status: 409 },
+      );
+    }
+    const fingerprint = createStudyPlanProfileFingerprint(profile);
+    onboardingContext = {
+      profile,
+      diagnosticResult,
+      generationKey: await createOnboardingGenerationKey({
+        userId: user.id,
+        profileFingerprint: fingerprint,
+        diagnosticAttemptId: diagnosticResult.attemptId,
+      }),
+    };
+    input = buildInitialStudyPlanInput(profile);
+  } else {
+    input = validateInput(payload);
+  }
   if (input instanceof Response) return input;
+
+  let generationLease: {
+    generationKey: string;
+    planId: string;
+    leaseToken: string;
+  } | null = null;
 
   try {
     const [learningProfile, userProfile, diagnosticResult] = await Promise.all([
-      getLearningProfile(user.id),
+      onboardingContext
+        ? Promise.resolve(onboardingContext.profile)
+        : getLearningProfile(user.id),
       getUserProfile(user.id),
-      getLatestCompletedDiagnosticQuiz(user.id),
+      onboardingContext
+        ? Promise.resolve(onboardingContext.diagnosticResult)
+        : getLatestCompletedDiagnosticQuiz(user.id),
     ]);
 
     if (!learningProfile) {
@@ -202,7 +291,8 @@ export async function POST(request: Request) {
       : "";
     const timelineInput: StudyPlanGenerationInput = {
       ...input,
-      learningProfileFingerprint: createLearningPlanFingerprint(learningProfile),
+      learningProfileFingerprint: createStudyPlanProfileFingerprint(learningProfile),
+      diagnosticAttemptId: diagnosticResult?.attemptId,
       examDate: learningProfile.examDate ?? input.examDate,
       extraContext: [
         input.extraContext,
@@ -213,6 +303,47 @@ export async function POST(request: Request) {
         quizWeakTopicSummary ? `诊断薄弱点：${quizWeakTopicSummary}` : "",
       ].filter(Boolean).join("\n"),
     };
+
+    if (onboardingContext) {
+      const reservation = await reserveStudyPlanGeneration({
+        userId: user.id,
+        generationKey: onboardingContext.generationKey,
+        input: timelineInput,
+        leaseDurationMs: ONBOARDING_GENERATION_LEASE_MS,
+      });
+      if (reservation.state === "completed") {
+        return Response.json(
+          {
+            plan: reservation.plan,
+            generatedBy: reservation.plan.model,
+            reused: true,
+          },
+          { headers: { "Cache-Control": "no-store" } },
+        );
+      }
+      if (reservation.state === "pending") {
+        return Response.json(
+          {
+            pending: true,
+            retryAfterSeconds: reservation.retryAfterSeconds,
+            retryAfterMs: reservation.retryAfterSeconds * 1000,
+            error: "第一版 Timeline 正在生成，请稍后重试。",
+          },
+          {
+            status: 202,
+            headers: {
+              "Cache-Control": "no-store",
+              "Retry-After": String(reservation.retryAfterSeconds),
+            },
+          },
+        );
+      }
+      generationLease = {
+        generationKey: onboardingContext.generationKey,
+        planId: reservation.planId,
+        leaseToken: reservation.leaseToken,
+      };
+    }
 
     let plan;
     let planText = "";
@@ -292,19 +423,59 @@ export async function POST(request: Request) {
       }
     }
 
-    const saved = await saveStudyPlan({
-      userId: user.id,
-      input: timelineInput,
-      plan,
-      model: generatedBy,
-      rawResponse: planText,
-    });
+    const saved = generationLease
+      ? await completeStudyPlanGeneration({
+          userId: user.id,
+          generationKey: generationLease.generationKey,
+          planId: generationLease.planId,
+          leaseToken: generationLease.leaseToken,
+          input: timelineInput,
+          plan,
+          model: generatedBy,
+          rawResponse: planText,
+        })
+      : await saveStudyPlan({
+          userId: user.id,
+          input: timelineInput,
+          plan,
+          model: generatedBy,
+          rawResponse: planText,
+        });
 
     return Response.json(
-      { plan: saved, generatedBy },
+      { plan: saved, generatedBy: saved.model },
       { headers: { "Cache-Control": "no-store" } },
     );
   } catch (error) {
+    if (generationLease) {
+      try {
+        await failStudyPlanGeneration({
+          userId: user.id,
+          generationKey: generationLease.generationKey,
+          planId: generationLease.planId,
+          leaseToken: generationLease.leaseToken,
+        });
+      } catch (leaseError) {
+        console.error("Failed to release Timeline generation lease", leaseError);
+      }
+    }
+    if (
+      error instanceof Error &&
+      error.message === "STUDY_PLAN_GENERATION_LEASE_LOST"
+    ) {
+      return Response.json(
+        {
+          pending: true,
+          retryAfterSeconds: 1,
+          retryAfterMs: 1000,
+          error: "另一项请求正在完成第一版 Timeline，请稍后重试。",
+        },
+        {
+          status: 202,
+          headers: { "Cache-Control": "no-store", "Retry-After": "1" },
+        },
+      );
+    }
     if (error instanceof AIProviderError) return providerErrorResponse(error);
     const message = error instanceof Error ? error.message : "Timeline 生成失败。";
     console.error("Failed to generate study plan", error);
