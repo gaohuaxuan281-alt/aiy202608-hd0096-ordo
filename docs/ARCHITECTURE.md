@@ -67,7 +67,7 @@
 | 每日反馈提醒 | 反馈总结 | 展示状态并跳转到反馈流程 |
 | 操作来源说明 | 日志 | 展示最近事件，不编辑日志 |
 
-接入顺序：先在本模块实现查询函数，再替换 `placeholderHomeAdapters` 对应方法，保持 `HomeDashboardSnapshot` 字段稳定。任何调整都必须在 Timeline 中由用户确认后落地，首页不能直接写入 Timeline 或 Todo。
+接入顺序：先在本模块实现查询函数，再替换 `emptyHomeAdapters` 对应方法，保持 `HomeDashboardSnapshot` 字段稳定。默认适配器只返回 `null` 或空数组，禁止使用演示任务、虚构统计或猜测值填满首页。当前首页只直接聚合已保存的考试档案、诊断 Quiz 和真实日志；任何调整都必须在 Timeline 中由用户确认后落地，首页不能直接写入 Timeline 或 Todo。
 
 ## 考试学习档案
 

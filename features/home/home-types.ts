@@ -77,16 +77,16 @@ export type HomeFeedbackReminder = {
 };
 
 export type HomeTimelineSlice = {
-  exam: HomeExamOverview;
-  nextTask: HomeNextTask;
-  risk: HomeRisk;
+  exam: HomeExamOverview | null;
+  nextTask: HomeNextTask | null;
+  risk: HomeRisk | null;
   recentChanges: HomePlanChange[];
   pendingAdjustments: HomePendingAdjustment[];
-  weeklyAdjustmentCount: number;
+  weeklyAdjustmentCount: number | null;
 };
 
 export type HomeTodoSlice = {
-  today: HomeTodayProgress;
+  today: HomeTodayProgress | null;
 };
 
 export type HomeTutorSlice = {
@@ -94,12 +94,30 @@ export type HomeTutorSlice = {
 };
 
 export type HomeSummarySlice = {
-  feedback: HomeFeedbackReminder;
+  feedback: HomeFeedbackReminder | null;
 };
 
 export type HomeInsightsSlice = {
   subjects: HomeSubjectProgress[];
-  overallStatusLabel: string;
+  overallStatusLabel: string | null;
+};
+
+export type HomeDiagnosticOverview = {
+  score: number;
+  total: number;
+  percentage: number;
+  completedAtLabel: string;
+  subjectScores: Array<{
+    subject: string;
+    correct: number;
+    total: number;
+    percentage: number;
+  }>;
+  weakTopics: Array<{
+    subject: string;
+    unitLabel: string;
+    knowledgePoint: string;
+  }>;
 };
 
 export type HomeDashboardSnapshot = {
@@ -111,6 +129,7 @@ export type HomeDashboardSnapshot = {
   tutor: HomeTutorSlice;
   summary: HomeSummarySlice;
   insights: HomeInsightsSlice;
+  diagnostic: HomeDiagnosticOverview | null;
 };
 
 /**

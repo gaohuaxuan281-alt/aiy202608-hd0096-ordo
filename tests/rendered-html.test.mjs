@@ -210,11 +210,14 @@ test("homepage is a complete read-only aggregation surface with replaceable modu
   assert.match(route, /getHomeDashboardSnapshot/);
   assert.match(route, /<HomePage snapshot=\{snapshot\}/);
   assert.match(homeTypes, /HomeDashboardAdapters/);
-  assert.match(homeData, /placeholderHomeAdapters/);
+  assert.match(homeData, /emptyHomeAdapters/);
   assert.match(homeData, /Promise\.all/);
   assert.match(homeData, /currentExam: "timeline"/);
   assert.match(homeData, /todayProgress: "todo"/);
   assert.match(homeData, /subjectProgress: "insights"/);
+  assert.doesNotMatch(homeData, /exam-placeholder|task-placeholder|placeholderHomeAdapters/);
+  assert.match(route, /getLatestCompletedDiagnosticQuiz/);
+  assert.match(route, /listJournalEntries/);
 
   for (const label of [
     "当前考试",
@@ -222,7 +225,7 @@ test("homepage is a complete read-only aggregation surface with replaceable modu
     "下一项",
     "今天剩余可用时间",
     "当前最大风险",
-    "最近发生的计划变化",
+    "最近真实操作记录",
     "待确认调整",
     "各科进展摘要",
     "AI Tutor 快速入口",
@@ -234,6 +237,8 @@ test("homepage is a complete read-only aggregation surface with replaceable modu
     assert.match(homePage, new RegExp(label));
   }
   assert.match(homePage, /只有在 Timeline 中确认后/);
+  assert.match(homePage, /Todo 暂无可展示任务/);
+  assert.match(homePage, /不使用演示数字/);
   assert.match(architecture, /首页不建立独立业务表/);
 });
 
