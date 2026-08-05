@@ -307,3 +307,79 @@ test("journal is an append-only operation center with durable events, filtering,
   assert.match(architecture, /日志采用追加式模型/);
   assert.match(architecture, /不得把密码、会话令牌、完整手机号/);
 });
+
+test("daily feedback reads real module context and applies AI proposals only after confirmation", async () => {
+  const [
+    route,
+    adjustmentRoute,
+    pageRoute,
+    page,
+    types,
+    store,
+    generator,
+    planStore,
+    schema,
+    migration,
+    revisionMigration,
+    rateLimitMigration,
+    homeRoute,
+  ] = await Promise.all([
+    readFile(new URL("../app/api/summary/daily/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/summary/adjustment/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/summary/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../features/summary/SummaryPage.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../features/summary/summary-types.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/daily-feedback.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/daily-feedback-generator.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/study-plan/store.ts", import.meta.url), "utf8"),
+    readFile(new URL("../db/schema.ts", import.meta.url), "utf8"),
+    readFile(new URL("../drizzle/0008_easy_kinsey_walden.sql", import.meta.url), "utf8"),
+    readFile(new URL("../drizzle/0009_sleepy_zarek.sql", import.meta.url), "utf8"),
+    readFile(new URL("../drizzle/0010_lyrical_falcon.sql", import.meta.url), "utf8"),
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(pageRoute, /getFeedbackPageSnapshot/);
+  assert.match(pageRoute, /initialSnapshot/);
+  assert.match(route, /buildFeedbackSystemContext/);
+  assert.match(route, /generateDailyFeedbackAnalysis/);
+  assert.match(route, /DailyFeedbackCompleted/);
+  assert.match(adjustmentRoute, /decideFeedbackAdjustment/);
+  assert.match(adjustmentRoute, /AdjustmentAccepted/);
+  assert.match(adjustmentRoute, /TimelineAdjusted/);
+  assert.match(adjustmentRoute, /AdjustmentRejected/);
+  assert.match(store, /getAIModuleUsage/);
+  assert.match(store, /listJournalEntries/);
+  assert.match(store, /completedMinutesEstimate/);
+  assert.match(generator, /actualStudyMinutes 为 null 时必须明确写/);
+  assert.match(generator, /只能是待确认建议/);
+  assert.match(planStore, /applyFeedbackAdjustment/);
+  assert.match(planStore, /version: current\.plan\.version \+ 1/);
+  assert.match(types, /awaiting_confirmation/);
+  assert.match(schema, /dailyFeedbacks/);
+  assert.match(schema, /feedbackAdjustments/);
+  assert.match(migration, /CREATE TABLE `daily_feedbacks`/);
+  assert.match(migration, /CREATE TABLE `feedback_adjustments`/);
+  assert.match(revisionMigration, /ADD `parent_plan_id` text/);
+  assert.match(revisionMigration, /study_plans_user_parent_unique/);
+  assert.match(rateLimitMigration, /CREATE TABLE `ai_request_events`/);
+  assert.match(route, /reserveAIRequest/);
+  assert.match(homeRoute, /getHomeSummarySlice/);
+
+  for (const label of [
+    "系统已经知道的事",
+    "补充只有你知道的情况",
+    "语音补充",
+    "AI 反馈总结",
+    "计划与实际偏差",
+    "新发现的薄弱点",
+    "明日风险",
+    "Timeline 修改草案",
+    "确认并应用",
+    "暂不采用",
+  ]) {
+    assert.match(page, new RegExp(label));
+  }
+  assert.match(page, /不会冒充实际用时/);
+  assert.match(page, /草案不会自动修改 Timeline/);
+});

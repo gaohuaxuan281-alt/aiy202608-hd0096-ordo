@@ -174,6 +174,23 @@ export const aiMessages = sqliteTable(
   (table) => [index("idx_ai_messages_conversation_created").on(table.conversationId, table.createdAt)],
 );
 
+export const aiRequestEvents = sqliteTable(
+  "ai_request_events",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    module: text("module").notNull(),
+    createdAt: integer("created_at").notNull(),
+  },
+  (table) => [index("idx_ai_request_events_user_module_created").on(
+    table.userId,
+    table.module,
+    table.createdAt,
+  )],
+);
+
 export const studyPlans = sqliteTable(
   "study_plans",
   {
@@ -188,12 +205,78 @@ export const studyPlans = sqliteTable(
     planJson: text("plan_json").notNull(),
     model: text("model").notNull(),
     rawResponse: text("raw_response").notNull(),
+    parentPlanId: text("parent_plan_id"),
+    sourceAdjustmentId: text("source_adjustment_id"),
     createdAt: integer("created_at").notNull(),
     updatedAt: integer("updated_at").notNull(),
   },
   (table) => [
     index("idx_study_plans_user_updated").on(table.userId, table.updatedAt),
     index("idx_study_plans_user_exam").on(table.userId, table.examDate),
+    uniqueIndex("study_plans_user_parent_unique").on(table.userId, table.parentPlanId),
+    uniqueIndex("study_plans_source_adjustment_unique").on(table.sourceAdjustmentId),
+  ],
+);
+
+export const dailyFeedbacks = sqliteTable(
+  "daily_feedbacks",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    feedbackDate: text("feedback_date").notNull(),
+    status: text("status").notNull(),
+    basePlanId: text("base_plan_id"),
+    basePlanUpdatedAt: integer("base_plan_updated_at"),
+    energyLevel: integer("energy_level").notNull(),
+    focusLevel: integer("focus_level").notNull(),
+    actualStudyMinutes: integer("actual_study_minutes"),
+    quickSelectionsJson: text("quick_selections_json").notNull(),
+    difficultyNotes: text("difficulty_notes").notNull(),
+    incompleteReason: text("incomplete_reason").notNull(),
+    unclearKnowledge: text("unclear_knowledge").notNull(),
+    tomorrowChanges: text("tomorrow_changes").notNull(),
+    tomorrowPriority: text("tomorrow_priority").notNull(),
+    additionalNotes: text("additional_notes").notNull(),
+    systemContextJson: text("system_context_json").notNull(),
+    aiSummaryJson: text("ai_summary_json").notNull(),
+    model: text("model").notNull(),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("daily_feedbacks_user_date_unique").on(table.userId, table.feedbackDate),
+    index("idx_daily_feedbacks_user_updated").on(table.userId, table.updatedAt),
+  ],
+);
+
+export const feedbackAdjustments = sqliteTable(
+  "feedback_adjustments",
+  {
+    id: text("id").primaryKey(),
+    feedbackId: text("feedback_id")
+      .notNull()
+      .references(() => dailyFeedbacks.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    basePlanId: text("base_plan_id"),
+    basePlanUpdatedAt: integer("base_plan_updated_at"),
+    operation: text("operation").notNull(),
+    taskId: text("task_id"),
+    title: text("title").notNull(),
+    description: text("description").notNull(),
+    reason: text("reason").notNull(),
+    beforeJson: text("before_json").notNull(),
+    afterJson: text("after_json").notNull(),
+    decision: text("decision").notNull(),
+    decidedAt: integer("decided_at"),
+    createdAt: integer("created_at").notNull(),
+  },
+  (table) => [
+    index("idx_feedback_adjustments_feedback").on(table.feedbackId, table.createdAt),
+    index("idx_feedback_adjustments_user_decision").on(table.userId, table.decision),
   ],
 );
 

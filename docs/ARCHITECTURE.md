@@ -113,3 +113,9 @@ window.dispatchEvent(new CustomEvent("zhixu:open-ai", {
   detail: { module: "timeline", prompt: "帮我检查计划风险" },
 }));
 ```
+
+## 每日反馈闭环
+
+反馈总结的权威入口是 `GET/POST /api/summary/daily`，确认入口是 `POST /api/summary/adjustment`。服务端通过 `lib/daily-feedback.ts` 自动读取当日 Todo、按计划时长估算的完成分钟数、延期与跳过任务、AI Tutor 使用、今日日志和剩余 Timeline；估算时长不得标记为实际用时。
+
+AI 结构化输出先写入 `daily_feedbacks` 与 `feedback_adjustments`，状态保持待确认。接受建议时，`lib/study-plan/store.ts` 会校验计划版本、锁定状态、日期时间、重叠、每日预算、依赖顺序和硬边界，再生成带父版本的新 Timeline；拒绝不会写计划。Todo 始终从最新 Timeline 派生。接受、拒绝和新版 Timeline 使用确定性日志 ID 追加到 `journal_entries`，重复请求不会重复写日志。首页通过 `getHomeSummarySlice()` 读取真实反馈状态。

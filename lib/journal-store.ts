@@ -97,7 +97,7 @@ export async function appendJournalEntry(userId: string, input: JournalEventInpu
   if (!Number.isFinite(occurredAt)) throw new Error("Journal event time is invalid.");
 
   await getD1()
-    .prepare(`INSERT INTO journal_entries (
+    .prepare(`INSERT OR IGNORE INTO journal_entries (
       id, user_id, event_name, actor_type, actor_label, module, module_label,
       action, action_label, title, summary, reason, related_object_type,
       related_object_id, related_object_label, related_object_href, changes_json,
@@ -139,7 +139,7 @@ export async function appendJournalEntryBestEffort(userId: string, input: Journa
   }
 }
 
-export async function listJournalEntries(userId: string, limit = 250) {
+export async function listJournalEntries(userId: string, limit = 250): Promise<JournalEntry[]> {
   await ensureAuthSchema();
   const safeLimit = Math.max(1, Math.min(500, Math.trunc(limit)));
   const result = await getD1()

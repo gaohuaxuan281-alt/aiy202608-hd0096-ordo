@@ -1,6 +1,10 @@
 import { HomePage } from "../features/home/HomePage";
-import { getHomeDashboardSnapshot } from "../features/home/home-data";
+import {
+  emptyHomeAdapters,
+  getHomeDashboardSnapshot,
+} from "../features/home/home-data";
 import { getCurrentUser } from "../lib/current-user";
+import { getHomeSummarySlice } from "../lib/daily-feedback";
 import { getLatestCompletedDiagnosticQuiz } from "../lib/diagnostic-quiz";
 import { listJournalEntries } from "../lib/journal-store";
 import { getLearningProfile } from "../lib/learning-profile";
@@ -15,6 +19,12 @@ export default async function Page() {
       ])
     : [null, null, []];
   const snapshot = await getHomeDashboardSnapshot({
+    adapters: user
+      ? {
+          ...emptyHomeAdapters,
+          summary: () => getHomeSummarySlice(user.id),
+        }
+      : emptyHomeAdapters,
     examPlan,
     diagnosticQuiz,
     journalEntries,

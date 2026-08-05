@@ -78,6 +78,8 @@ export type StoredStudyPlan = {
   plan: StudyPlanDocument;
   model: string;
   rawResponse: string;
+  parentPlanId: string | null;
+  sourceAdjustmentId: string | null;
   createdAt: number;
   updatedAt: number;
 };

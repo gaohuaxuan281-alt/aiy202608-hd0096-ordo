@@ -142,6 +142,14 @@ export async function ensureAuthSchema() {
           FOREIGN KEY (conversation_id) REFERENCES ai_conversations(id) ON UPDATE no action ON DELETE cascade
         )`),
         d1.prepare("CREATE INDEX IF NOT EXISTS idx_ai_messages_conversation_created ON ai_messages (conversation_id, created_at)"),
+        d1.prepare(`CREATE TABLE IF NOT EXISTS ai_request_events (
+          id TEXT PRIMARY KEY NOT NULL,
+          user_id TEXT NOT NULL,
+          module TEXT NOT NULL,
+          created_at INTEGER NOT NULL,
+          FOREIGN KEY (user_id) REFERENCES users(id) ON UPDATE no action ON DELETE cascade
+        )`),
+        d1.prepare("CREATE INDEX IF NOT EXISTS idx_ai_request_events_user_module_created ON ai_request_events (user_id, module, created_at)"),
         d1.prepare(`CREATE TABLE IF NOT EXISTS study_plans (
           id TEXT PRIMARY KEY NOT NULL,
           user_id TEXT NOT NULL,
@@ -152,12 +160,61 @@ export async function ensureAuthSchema() {
           plan_json TEXT NOT NULL,
           model TEXT NOT NULL,
           raw_response TEXT NOT NULL,
+          parent_plan_id TEXT,
+          source_adjustment_id TEXT,
           created_at INTEGER NOT NULL,
           updated_at INTEGER NOT NULL,
           FOREIGN KEY (user_id) REFERENCES users(id) ON UPDATE no action ON DELETE cascade
         )`),
         d1.prepare("CREATE INDEX IF NOT EXISTS idx_study_plans_user_updated ON study_plans (user_id, updated_at)"),
         d1.prepare("CREATE INDEX IF NOT EXISTS idx_study_plans_user_exam ON study_plans (user_id, exam_date)"),
+        d1.prepare(`CREATE TABLE IF NOT EXISTS daily_feedbacks (
+          id TEXT PRIMARY KEY NOT NULL,
+          user_id TEXT NOT NULL,
+          feedback_date TEXT NOT NULL,
+          status TEXT NOT NULL,
+          base_plan_id TEXT,
+          base_plan_updated_at INTEGER,
+          energy_level INTEGER NOT NULL,
+          focus_level INTEGER NOT NULL,
+          actual_study_minutes INTEGER,
+          quick_selections_json TEXT NOT NULL,
+          difficulty_notes TEXT NOT NULL,
+          incomplete_reason TEXT NOT NULL,
+          unclear_knowledge TEXT NOT NULL,
+          tomorrow_changes TEXT NOT NULL,
+          tomorrow_priority TEXT NOT NULL,
+          additional_notes TEXT NOT NULL,
+          system_context_json TEXT NOT NULL,
+          ai_summary_json TEXT NOT NULL,
+          model TEXT NOT NULL,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          FOREIGN KEY (user_id) REFERENCES users(id) ON UPDATE no action ON DELETE cascade
+        )`),
+        d1.prepare("CREATE UNIQUE INDEX IF NOT EXISTS daily_feedbacks_user_date_unique ON daily_feedbacks (user_id, feedback_date)"),
+        d1.prepare("CREATE INDEX IF NOT EXISTS idx_daily_feedbacks_user_updated ON daily_feedbacks (user_id, updated_at)"),
+        d1.prepare(`CREATE TABLE IF NOT EXISTS feedback_adjustments (
+          id TEXT PRIMARY KEY NOT NULL,
+          feedback_id TEXT NOT NULL,
+          user_id TEXT NOT NULL,
+          base_plan_id TEXT,
+          base_plan_updated_at INTEGER,
+          operation TEXT NOT NULL,
+          task_id TEXT,
+          title TEXT NOT NULL,
+          description TEXT NOT NULL,
+          reason TEXT NOT NULL,
+          before_json TEXT NOT NULL,
+          after_json TEXT NOT NULL,
+          decision TEXT NOT NULL,
+          decided_at INTEGER,
+          created_at INTEGER NOT NULL,
+          FOREIGN KEY (feedback_id) REFERENCES daily_feedbacks(id) ON UPDATE no action ON DELETE cascade,
+          FOREIGN KEY (user_id) REFERENCES users(id) ON UPDATE no action ON DELETE cascade
+        )`),
+        d1.prepare("CREATE INDEX IF NOT EXISTS idx_feedback_adjustments_feedback ON feedback_adjustments (feedback_id, created_at)"),
+        d1.prepare("CREATE INDEX IF NOT EXISTS idx_feedback_adjustments_user_decision ON feedback_adjustments (user_id, decision)"),
         d1.prepare(`CREATE TABLE IF NOT EXISTS journal_entries (
           id TEXT PRIMARY KEY NOT NULL,
           user_id TEXT NOT NULL,
@@ -185,12 +242,17 @@ export async function ensureAuthSchema() {
         d1.prepare("CREATE INDEX IF NOT EXISTS idx_journal_entries_user_module ON journal_entries (user_id, module)"),
       ])
       .then(async () => {
-        const [learningProfileColumns, subjectPreferenceColumns] = await Promise.all([
+        const [learningProfileColumns, subjectPreferenceColumns, studyPlanColumns] = await Promise.all([
           d1.prepare("PRAGMA table_info(user_learning_profiles)").all<{ name: string }>(),
           d1.prepare("PRAGMA table_info(user_subject_preferences)").all<{ name: string }>(),
+          d1.prepare("PRAGMA table_info(study_plans)").all<{ name: string }>(),
         ]);
-        const learningNames = new Set((learningProfileColumns.results ?? []).map((item) => item.name));
-        const subjectNames = new Set((subjectPreferenceColumns.results ?? []).map((item) => item.name));
+        const learningRows = (learningProfileColumns.results ?? []) as Array<{ name: string }>;
+        const subjectRows = (subjectPreferenceColumns.results ?? []) as Array<{ name: string }>;
+        const studyPlanRows = (studyPlanColumns.results ?? []) as Array<{ name: string }>;
+        const learningNames = new Set(learningRows.map((item) => item.name));
+        const subjectNames = new Set(subjectRows.map((item) => item.name));
+        const studyPlanNames = new Set(studyPlanRows.map((item) => item.name));
         const migrations = [];
         if (!learningNames.has("exam_date")) {
           migrations.push(d1.prepare("ALTER TABLE user_learning_profiles ADD COLUMN exam_date TEXT"));
@@ -201,7 +263,17 @@ export async function ensureAuthSchema() {
         if (!subjectNames.has("exam_unit_end")) {
           migrations.push(d1.prepare("ALTER TABLE user_subject_preferences ADD COLUMN exam_unit_end INTEGER"));
         }
+        if (!studyPlanNames.has("parent_plan_id")) {
+          migrations.push(d1.prepare("ALTER TABLE study_plans ADD COLUMN parent_plan_id TEXT"));
+        }
+        if (!studyPlanNames.has("source_adjustment_id")) {
+          migrations.push(d1.prepare("ALTER TABLE study_plans ADD COLUMN source_adjustment_id TEXT"));
+        }
         if (migrations.length) await d1.batch(migrations);
+        await d1.batch([
+          d1.prepare("CREATE UNIQUE INDEX IF NOT EXISTS study_plans_user_parent_unique ON study_plans (user_id, parent_plan_id)"),
+          d1.prepare("CREATE UNIQUE INDEX IF NOT EXISTS study_plans_source_adjustment_unique ON study_plans (source_adjustment_id)"),
+        ]);
       })
       .catch((error: unknown) => {
         authSchemaPromise = null;

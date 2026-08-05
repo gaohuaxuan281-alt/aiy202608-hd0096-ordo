@@ -51,6 +51,12 @@ export async function PATCH(request: Request) {
     if (code === "STUDY_PLAN_TASK_NOT_FOUND") {
       return Response.json({ error: "没有找到这个 Todo 任务。" }, { status: 404 });
     }
+    if (code === "STUDY_PLAN_CONFLICT") {
+      return Response.json(
+        { error: "Timeline 刚刚发生变化，请刷新 Todo 后重试。" },
+        { status: 409 },
+      );
+    }
     console.error("Failed to update todo task status", error);
     return Response.json({ error: "任务状态暂时没有更新成功，请稍后重试。" }, { status: 500 });
   }

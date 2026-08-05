@@ -25,6 +25,7 @@ import { getLearningProfile } from "../../../../lib/learning-profile";
 import { getLatestCompletedDiagnosticQuiz } from "../../../../lib/diagnostic-quiz";
 import { AIProviderError, requestOpenAIResponse } from "../../../../lib/openai";
 import { getUserProfile } from "../../../../lib/profile";
+import { buildFeedbackSystemContext } from "../../../../lib/daily-feedback";
 
 const MAX_MESSAGE_LENGTH = 4_000;
 const MAX_CONTEXT_LENGTH = 3_000;
@@ -163,10 +164,13 @@ export async function POST(request: Request) {
       return Response.json({ error: "没有找到这段 AI 对话。" }, { status: 404 });
     }
 
-    const [learningProfile, userProfile, diagnosticResult] = await Promise.all([
+    const [learningProfile, userProfile, diagnosticResult, summaryContext] = await Promise.all([
       getLearningProfile(user.id),
       getUserProfile(user.id),
       getLatestCompletedDiagnosticQuiz(user.id),
+      aiModule === "summary"
+        ? buildFeedbackSystemContext(user.id)
+        : Promise.resolve(null),
     ]);
     const learningContext = learningProfile
       ? [
@@ -192,7 +196,12 @@ export async function POST(request: Request) {
         aiModule,
         displayName: userProfile.displayName,
         learningContext,
-        pageContext,
+        pageContext: [
+          pageContext,
+          summaryContext
+            ? `反馈总结模块自动读取的今日真实数据：\n${JSON.stringify(summaryContext)}`
+            : "",
+        ].filter(Boolean).join("\n\n"),
       }),
       history: conversation?.messages ?? [],
       message,

@@ -93,6 +93,68 @@ export async function countRecentAIRequests(userId: string, since: number) {
   return row?.total ?? 0;
 }
 
+export async function getAIModuleUsage(
+  userId: string,
+  module: AIModule,
+  since: number,
+  until: number,
+) {
+  await ensureAuthSchema();
+  const row = await getD1()
+    .prepare(`SELECT
+      COUNT(DISTINCT ai_conversations.id) AS sessionCount,
+      SUM(CASE WHEN ai_messages.role = 'user' THEN 1 ELSE 0 END) AS messageCount,
+      MAX(ai_messages.created_at) AS lastUsedAt
+    FROM ai_conversations
+    INNER JOIN ai_messages ON ai_messages.conversation_id = ai_conversations.id
+    WHERE ai_conversations.user_id = ?
+      AND ai_conversations.module = ?
+      AND ai_messages.created_at >= ?
+      AND ai_messages.created_at < ?`)
+    .bind(userId, module, since, until)
+    .first<{ sessionCount: number | null; messageCount: number | null; lastUsedAt: number | null }>();
+
+  return {
+    sessionCount: row?.sessionCount ?? 0,
+    messageCount: row?.messageCount ?? 0,
+    lastUsedAt: row?.lastUsedAt ?? null,
+  };
+}
+
+export async function reserveAIRequest({
+  userId,
+  module,
+  limit,
+  windowMs,
+}: {
+  userId: string;
+  module: AIModule;
+  limit: number;
+  windowMs: number;
+}) {
+  await ensureAuthSchema();
+  const now = Date.now();
+  const result = await getD1()
+    .prepare(`INSERT INTO ai_request_events (id, user_id, module, created_at)
+      SELECT ?, ?, ?, ?
+      WHERE (
+        SELECT COUNT(*) FROM ai_request_events
+        WHERE user_id = ? AND module = ? AND created_at >= ?
+      ) < ?`)
+    .bind(
+      crypto.randomUUID(),
+      userId,
+      module,
+      now,
+      userId,
+      module,
+      now - windowMs,
+      limit,
+    )
+    .run();
+  return (result.meta?.changes ?? 0) > 0;
+}
+
 export async function saveAIExchange({
   userId,
   module,

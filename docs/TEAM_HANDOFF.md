@@ -94,6 +94,12 @@ Todo、Timeline、AI Tutor、反馈总结、进展洞察和用户中心在业务
 
 生产环境已经使用 D1 的 `journal_entries` 表，路由通过 `createD1JournalAdapter(user.id)` 按当前用户查询。来源模块应在服务端调用 `appendJournalEntry()`，或在日志失败不应阻断主操作时调用 `appendJournalEntryBestEffort()`；不要从浏览器直接写入日志。保持 `JournalSnapshot` 与 `JournalEntry` 字段稳定，且不得记录密码内容、令牌、完整手机号、API 密钥或支付凭证。
 
+## 反馈总结数据接入
+
+反馈总结页面与类型位于 `features/summary/`，服务端聚合、持久化和首页状态位于 `lib/daily-feedback.ts`，AI 结构化生成位于 `lib/daily-feedback-generator.ts`。员工扩展问题或分析字段时，先更新 `summary-types.ts`，再同步 JSON Schema、D1 字段或 JSON 持久化和页面展示。
+
+不得从前端直接提交 Timeline 修改内容。客户端只能提交已持久化的 `adjustmentId` 和接受/拒绝决定；服务端会重新校验任务所有权、基础计划版本、硬边界和依赖。Timeline 每次接受建议都会生成新版本，Todo 无需单独同步或建表。涉及 `daily_feedbacks`、`feedback_adjustments`、`ai_request_events` 或 Study Plan 版本字段的改动必须附带 Drizzle 迁移。
+
 ## 当前项目管理员
 
 - `@gaohuaxuan281-alt`
