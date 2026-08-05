@@ -11,7 +11,9 @@ test("unauthenticated visitors see the phone login gateway and new users enter o
 
   assert.match(layout, /!user \? \(/);
   assert.match(layout, /<AuthPortal \/>/);
-  assert.match(layout, /!hasCompleteExamPlan\(learningProfile\) \? \(/);
+  assert.match(layout, /hasCompleteExamPlan\(learningProfile\)/);
+  assert.match(layout, /hasCompletedDiagnosticQuizForProfile\(learningProfile, diagnosticResult\)/);
+  assert.match(layout, /!onboardingComplete \? \(/);
   assert.match(layout, /<LearningQuestionnaire initialProfile=\{learningProfile\}/);
   assert.match(portal, /欢迎回来/);
   assert.match(portal, /登录并进入知序/);
@@ -24,8 +26,9 @@ test("unauthenticated visitors see the phone login gateway and new users enter o
   assert.match(questionnaire, /这次考试考哪些 Unit/);
   assert.match(questionnaire, /下周考试/);
   assert.match(questionnaire, /Unit 1–3/);
-  assert.match(questionnaire, /共 5 步/);
-  assert.match(questionnaire, /api\/account\/learning-profile/);
+  assert.match(questionnaire, /用 10 题找到真正的复习重点/);
+  assert.match(questionnaire, /共 6 步/);
+  assert.match(questionnaire, /api\/onboarding\/diagnostic-quiz\/generate/);
 });
 
 test("learning catalog and exam plan cover grade one through senior three with durable textbook unit ranges", async () => {
@@ -58,6 +61,64 @@ test("learning catalog and exam plan cover grade one through senior three with d
   assert.match(schema, /examUnitStart: integer\("exam_unit_start"\)/);
   assert.match(migration, /ADD `exam_date` text/);
   assert.match(migration, /ADD `exam_unit_start` integer/);
+});
+
+test("onboarding diagnostic quiz generates 10 AI questions and stores timeline-ready mastery data", async () => {
+  const [
+    questionnaire,
+    quizStep,
+    generateRoute,
+    completeRoute,
+    summaryRoute,
+    quizService,
+    generator,
+    schema,
+    migration,
+    layout,
+    aiRoute,
+    timelinePrompt,
+    handoff,
+  ] = await Promise.all([
+    readFile(new URL("../features/onboarding/LearningQuestionnaire.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../features/onboarding/DiagnosticQuizStep.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/onboarding/diagnostic-quiz/generate/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/onboarding/diagnostic-quiz/complete/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/account/diagnostic-quiz/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/diagnostic-quiz.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/diagnostic-quiz-generator.ts", import.meta.url), "utf8"),
+    readFile(new URL("../db/schema.ts", import.meta.url), "utf8"),
+    readFile(new URL("../drizzle/0006_melted_grim_reaper.sql", import.meta.url), "utf8"),
+    readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/ai/respond/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/ai-prompts.ts", import.meta.url), "utf8"),
+    readFile(new URL("../docs/TEAM_HANDOFF.md", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(questionnaire, /生成 10 题诊断 Quiz/);
+  assert.match(questionnaire, /提交 Quiz/);
+  assert.match(quizStep, /考前知识点覆盖诊断/);
+  assert.match(quizStep, /薄弱知识点/);
+  assert.match(quizStep, /逐题答案与解析/);
+  assert.match(generateRoute, /requestOpenAIStructuredResponse/);
+  assert.match(generateRoute, /saveGeneratedDiagnosticQuiz/);
+  assert.match(generateRoute, /QUIZ_GENERATIONS_PER_HOUR/);
+  assert.match(completeRoute, /completeDiagnosticQuiz/);
+  assert.match(completeRoute, /saveLearningProfile/);
+  assert.match(summaryRoute, /getLatestCompletedDiagnosticQuiz/);
+  assert.doesNotMatch(summaryRoute, /correctOption/);
+  assert.match(generator, /minItems: 10/);
+  assert.match(generator, /buildDiagnosticCoverageTargets/);
+  assert.match(generator, /逐题覆盖位置/);
+  assert.match(quizService, /getLatestCompletedDiagnosticQuiz/);
+  assert.match(quizService, /profileFingerprint/);
+  assert.match(schema, /diagnosticQuizAttempts/);
+  assert.match(schema, /diagnosticQuizQuestions/);
+  assert.match(schema, /diagnosticQuizAnswers/);
+  assert.match(migration, /CREATE TABLE `diagnostic_quiz_attempts`/);
+  assert.match(layout, /hasCompletedDiagnosticQuizForProfile/);
+  assert.match(aiRoute, /诊断薄弱知识点/);
+  assert.match(timelinePrompt, /最近 10 题诊断结果/);
+  assert.match(handoff, /getLatestCompletedDiagnosticQuiz/);
 });
 
 test("account implementation keeps passwords hashed and sessions server-only", async () => {

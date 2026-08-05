@@ -22,6 +22,7 @@ import {
   getDaysUntilExam,
 } from "../../../../lib/exam-plan";
 import { getLearningProfile } from "../../../../lib/learning-profile";
+import { getLatestCompletedDiagnosticQuiz } from "../../../../lib/diagnostic-quiz";
 import { AIProviderError, requestOpenAIResponse } from "../../../../lib/openai";
 import { getUserProfile } from "../../../../lib/profile";
 
@@ -162,9 +163,10 @@ export async function POST(request: Request) {
       return Response.json({ error: "没有找到这段 AI 对话。" }, { status: 404 });
     }
 
-    const [learningProfile, userProfile] = await Promise.all([
+    const [learningProfile, userProfile, diagnosticResult] = await Promise.all([
       getLearningProfile(user.id),
       getUserProfile(user.id),
+      getLatestCompletedDiagnosticQuiz(user.id),
     ]);
     const learningContext = learningProfile
       ? [
@@ -176,6 +178,10 @@ export async function POST(request: Request) {
           `考试范围：${learningProfile.subjects
             .map((item) => `${SUBJECTS[item.subject].label} ${formatExamUnitRange(item.subject, item.examUnitStart, item.examUnitEnd)}`)
             .join("；")}`,
+          `最近诊断 Quiz：${diagnosticResult ? `${diagnosticResult.score}/${diagnosticResult.total}（正确率 ${diagnosticResult.percentage}%）` : "尚未完成"}`,
+          `诊断薄弱知识点：${diagnosticResult?.weakTopics.length
+            ? diagnosticResult.weakTopics.map((item) => `${item.subjectLabel} ${item.unitLabel}·${item.knowledgePoint}`).join("；")
+            : "暂未发现明显薄弱点"}`,
         ].join("\n- ")
       : "年级、科目、教材和考试范围尚未设置";
 

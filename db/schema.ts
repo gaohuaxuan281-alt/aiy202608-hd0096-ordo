@@ -72,6 +72,76 @@ export const userSubjectPreferences = sqliteTable(
   (table) => [primaryKey({ columns: [table.userId, table.subject] })],
 );
 
+export const diagnosticQuizAttempts = sqliteTable(
+  "diagnostic_quiz_attempts",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    profileFingerprint: text("profile_fingerprint").notNull(),
+    grade: text("grade").notNull(),
+    examDate: text("exam_date").notNull(),
+    status: text("status").notNull(),
+    score: integer("score"),
+    total: integer("total").notNull(),
+    model: text("model").notNull(),
+    coverageSummary: text("coverage_summary").notNull(),
+    createdAt: integer("created_at").notNull(),
+    completedAt: integer("completed_at"),
+  },
+  (table) => [
+    index("idx_diagnostic_quiz_attempts_user_created").on(table.userId, table.createdAt),
+    index("idx_diagnostic_quiz_attempts_user_status_completed").on(
+      table.userId,
+      table.status,
+      table.completedAt,
+    ),
+  ],
+);
+
+export const diagnosticQuizQuestions = sqliteTable(
+  "diagnostic_quiz_questions",
+  {
+    id: text("id").primaryKey(),
+    attemptId: text("attempt_id")
+      .notNull()
+      .references(() => diagnosticQuizAttempts.id, { onDelete: "cascade" }),
+    position: integer("position").notNull(),
+    subject: text("subject").notNull(),
+    textbook: text("textbook").notNull(),
+    unitNumber: integer("unit_number").notNull(),
+    knowledgePoint: text("knowledge_point").notNull(),
+    prompt: text("prompt").notNull(),
+    optionsJson: text("options_json").notNull(),
+    correctOption: integer("correct_option").notNull(),
+    explanation: text("explanation").notNull(),
+    difficulty: text("difficulty").notNull(),
+  },
+  (table) => [
+    uniqueIndex("diagnostic_quiz_questions_attempt_position_unique").on(
+      table.attemptId,
+      table.position,
+    ),
+    index("idx_diagnostic_quiz_questions_attempt").on(table.attemptId),
+  ],
+);
+
+export const diagnosticQuizAnswers = sqliteTable(
+  "diagnostic_quiz_answers",
+  {
+    attemptId: text("attempt_id")
+      .notNull()
+      .references(() => diagnosticQuizAttempts.id, { onDelete: "cascade" }),
+    questionId: text("question_id")
+      .notNull()
+      .references(() => diagnosticQuizQuestions.id, { onDelete: "cascade" }),
+    selectedOption: integer("selected_option").notNull(),
+    isCorrect: integer("is_correct", { mode: "boolean" }).notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.attemptId, table.questionId] })],
+);
+
 export const aiConversations = sqliteTable(
   "ai_conversations",
   {

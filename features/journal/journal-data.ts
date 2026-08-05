@@ -20,6 +20,7 @@ export const JOURNAL_EVENT_CATALOG = {
   AdjustmentRejected: "adjustment_rejected",
   DailyFeedbackCompleted: "feedback_completed",
   TutorSessionCompleted: "tutor_session_completed",
+  DiagnosticQuizCompleted: "mastery_changed",
   MasteryChanged: "mastery_changed",
   MembershipChanged: "membership_changed",
   AccountRegistered: "account_registered",

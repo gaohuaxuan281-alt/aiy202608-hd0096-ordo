@@ -39,7 +39,20 @@ git status
 
 本地使用 AI 功能前，将 `.env.example` 复制为 `.env.local`，由项目管理员提供并写入开发密钥。真实密钥不得通过聊天、邮件、代码提交或 PR 传递。
 
-首次学习问卷保存 `grade`、`examDate` 以及每科的 `textbook`、`examUnitStart`、`examUnitEnd`。Timeline、Todo、AI Tutor 和首页需要考试上下文时，统一读取 `LearningProfile`；不要在各模块重复创建考试日期或 Unit 范围字段。旧账号会在进入应用前被引导补齐新增信息。
+首次学习问卷保存 `grade`、`examDate` 以及每科的 `textbook`、`examUnitStart`、`examUnitEnd`，并在最后生成和完成 10 题诊断 Quiz。Timeline、Todo、AI Tutor 和首页需要考试上下文时，统一读取 `LearningProfile`；不要在各模块重复创建考试日期或 Unit 范围字段。旧账号会在进入应用前被引导补齐新增信息和诊断数据。
+
+## 诊断 Quiz 数据接入
+
+诊断数据的服务端权威入口是 `getLatestCompletedDiagnosticQuiz(userId)`，位于 `lib/diagnostic-quiz.ts`。它返回：
+
+- 总分、正确率与完成时间；
+- 每科正确数和正确率；
+- `weakTopics`：科目、Unit 和知识点标签；
+- 10 题逐题答案、正误与解析。
+
+Timeline 负责人生成复习计划时，先读取 `LearningProfile`，再读取 `getLatestCompletedDiagnosticQuiz(user.id)`；对 `weakTopics` 分配更多讲解、练习和再测时间，对答对知识点安排间隔巩固。客户端确实需要展示摘要时，调用受登录保护的 `GET /api/account/diagnostic-quiz`，它只返回得分、分科结果和薄弱点，不返回正确答案。不得从浏览器查询 Quiz 表，也不得读取未提交 Quiz 的正确答案。统一 `/api/ai/respond` 已自动注入诊断分数与薄弱知识点，普通 AI 对话不需要由客户端重复发送这些数据。
+
+Quiz 表包括 `diagnostic_quiz_attempts`、`diagnostic_quiz_questions` 和 `diagnostic_quiz_answers`。员工如需扩展洞察字段，应优先扩展 `DiagnosticQuizResult` 和服务端查询，不要在 Timeline 中复制一份诊断结果。
 
 ## 合并规则
 

@@ -4,6 +4,10 @@ import { AppShell } from "../components/AppShell";
 import { AuthPortal } from "../components/AuthPortal";
 import { LearningQuestionnaire } from "../features/onboarding/LearningQuestionnaire";
 import { getCurrentUser } from "../lib/current-user";
+import {
+  getLatestCompletedDiagnosticQuiz,
+  hasCompletedDiagnosticQuizForProfile,
+} from "../lib/diagnostic-quiz";
 import { getLearningProfile, hasCompleteExamPlan } from "../lib/learning-profile";
 import "./globals.css";
 
@@ -46,14 +50,21 @@ export async function generateMetadata(): Promise<Metadata> {
 
 export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   const user = await getCurrentUser();
-  const learningProfile = user ? await getLearningProfile(user.id) : null;
+  const [learningProfile, diagnosticResult] = user
+    ? await Promise.all([
+        getLearningProfile(user.id),
+        getLatestCompletedDiagnosticQuiz(user.id),
+      ])
+    : [null, null];
+  const onboardingComplete = hasCompleteExamPlan(learningProfile) &&
+    hasCompletedDiagnosticQuizForProfile(learningProfile, diagnosticResult);
 
   return (
     <html lang="zh-CN">
       <body>
         {!user ? (
           <AuthPortal />
-        ) : !hasCompleteExamPlan(learningProfile) ? (
+        ) : !onboardingComplete ? (
           <LearningQuestionnaire initialProfile={learningProfile} phone={user.phone} />
         ) : (
           <AppShell user={user} learningProfile={learningProfile}>{children}</AppShell>

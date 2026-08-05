@@ -20,22 +20,29 @@ import {
   isValidExamDate,
   isValidUnitRange,
 } from "../../lib/exam-plan";
+import type {
+  DiagnosticQuiz,
+  DiagnosticQuizResult,
+} from "../../lib/diagnostic-quiz-types";
 import type { LearningProfile } from "../../lib/learning-profile";
+import { DiagnosticQuizStep } from "./DiagnosticQuizStep";
 
-type QuestionnaireStep = 1 | 2 | 3 | 4 | 5;
+type QuestionnaireStep = 1 | 2 | 3 | 4 | 5 | 6;
 type UnitRangeDraft = { start: string; end: string };
 
 type LearningQuestionnaireProps = {
   initialProfile: LearningProfile | null;
   variant?: "gate" | "embedded";
   phone?: string;
-  onComplete?: (profile: LearningProfile) => void;
+  onComplete?: (profile: LearningProfile, result: DiagnosticQuizResult) => void;
   onCancel?: () => void;
 };
 
 type ApiResult = {
   error?: string;
   profile?: LearningProfile;
+  quiz?: DiagnosticQuiz;
+  result?: DiagnosticQuizResult;
 };
 
 const STEP_COPY = [
@@ -44,6 +51,7 @@ const STEP_COPY = [
   { eyebrow: "STEP 03 · TEXTBOOKS", title: "你正在使用哪套教材？", description: "按科目选择中国常用教材版本，后续计划会以此为准。" },
   { eyebrow: "STEP 04 · EXAM DATE", title: "计划什么时候考试？", description: "可以选择下周、两周后，或直接指定考试日期。" },
   { eyebrow: "STEP 05 · EXAM SCOPE", title: "这次考试考哪些 Unit？", description: "按每科教材选择起止 Unit/单元，例如 Unit 1–3。" },
+  { eyebrow: "STEP 06 · DIAGNOSTIC QUIZ", title: "用 10 题找到真正的复习重点", description: "题目会尽量覆盖所选 Unit 的核心知识点，结果将直接提供给 Timeline 和 AI。" },
 ] as const;
 
 const EXAM_DATE_PRESETS = [
@@ -69,7 +77,14 @@ export function LearningQuestionnaire({
   onComplete,
   onCancel,
 }: LearningQuestionnaireProps) {
-  const [step, setStep] = useState<QuestionnaireStep>(1);
+  const [step, setStep] = useState<QuestionnaireStep>(() =>
+    variant === "gate" &&
+    initialProfile?.examDate &&
+    isValidExamDate(initialProfile.examDate) &&
+    initialProfile.subjects.every((item) => isValidUnitRange(item.examUnitStart, item.examUnitEnd))
+      ? 5
+      : 1,
+  );
   const [grade, setGrade] = useState<GradeCode | null>(initialProfile?.grade ?? null);
   const [subjects, setSubjects] = useState<SubjectCode[]>(
     initialProfile?.subjects.map((item) => item.subject) ?? [],
@@ -92,23 +107,50 @@ export function LearningQuestionnaire({
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
+  const [quiz, setQuiz] = useState<DiagnosticQuiz | null>(null);
+  const [answers, setAnswers] = useState<Record<string, number>>({});
+  const [quizResult, setQuizResult] = useState<DiagnosticQuizResult | null>(null);
+  const [completedProfile, setCompletedProfile] = useState<LearningProfile | null>(null);
 
   const availableSubjects = grade ? getSubjectsForGrade(grade) : [];
   const orderedSubjects = availableSubjects.filter((subject) => subjects.includes(subject));
   const copy = STEP_COPY[step - 1];
   const daysUntilExam = examDate && isValidExamDate(examDate) ? getDaysUntilExam(examDate) : null;
 
+  function resetQuiz() {
+    setQuiz(null);
+    setAnswers({});
+    setQuizResult(null);
+    setCompletedProfile(null);
+  }
+
+  function buildProfilePayload() {
+    if (!grade) return null;
+    return {
+      grade,
+      examDate,
+      subjects: orderedSubjects.map((subject) => ({
+        subject,
+        textbook: textbooks[subject],
+        examUnitStart: Number(unitRanges[subject]?.start),
+        examUnitEnd: Number(unitRanges[subject]?.end),
+      })),
+    };
+  }
+
   function chooseGrade(nextGrade: GradeCode) {
     if (nextGrade !== grade) {
       setSubjects([]);
       setTextbooks({});
       setUnitRanges({});
+      resetQuiz();
     }
     setGrade(nextGrade);
     setError("");
   }
 
   function toggleSubject(subject: SubjectCode) {
+    resetQuiz();
     setSubjects((current) => {
       if (current.includes(subject)) {
         setTextbooks((items) => {
@@ -129,6 +171,7 @@ export function LearningQuestionnaire({
   }
 
   function chooseTextbook(subject: SubjectCode, textbook: string) {
+    resetQuiz();
     setTextbooks((current) => ({ ...current, [subject]: textbook }));
     setUnitRanges((current) => {
       const next = { ...current };
@@ -139,6 +182,7 @@ export function LearningQuestionnaire({
   }
 
   function setUnitBoundary(subject: SubjectCode, boundary: keyof UnitRangeDraft, value: string) {
+    resetQuiz();
     setUnitRanges((current) => {
       const nextRange = { ...(current[subject] ?? { start: "", end: "" }), [boundary]: value };
       if (
@@ -155,6 +199,7 @@ export function LearningQuestionnaire({
   }
 
   function setUnitPreset(subject: SubjectCode, start: number, end: number) {
+    resetQuiz();
     setUnitRanges((current) => ({
       ...current,
       [subject]: { start: String(start), end: String(end) },
@@ -201,7 +246,7 @@ export function LearningQuestionnaire({
     setStep((current) => Math.max(1, current - 1) as QuestionnaireStep);
   }
 
-  async function submit() {
+  function validateExamScope() {
     if (!grade || !isValidExamDate(examDate)) return;
     const missingScope = orderedSubjects.find((subject) => {
       const range = unitRanges[subject];
@@ -209,41 +254,82 @@ export function LearningQuestionnaire({
     });
     if (missingScope) {
       setError(`请为${SUBJECTS[missingScope].label}选择完整的考试 Unit 范围。`);
+      return false;
+    }
+    return true;
+  }
+
+  async function generateQuiz() {
+    const profile = buildProfilePayload();
+    if (!profile || !validateExamScope()) return;
+
+    setError("");
+    setSubmitting(true);
+    try {
+      const response = await fetch("/api/onboarding/diagnostic-quiz/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ profile }),
+      });
+      const result = (await response.json()) as ApiResult;
+      if (!response.ok || !result.quiz) {
+        setError(result.error ?? "诊断 Quiz 暂时没有生成，请重试。");
+        return;
+      }
+      setQuiz(result.quiz);
+      setAnswers({});
+      setQuizResult(null);
+      setStep(6);
+    } catch {
+      setError("网络连接异常，请稍后重试。");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function submitQuiz() {
+    const profile = buildProfilePayload();
+    if (!profile || !quiz) return;
+    if (Object.keys(answers).length !== quiz.questionCount) {
+      setError(`还剩 ${quiz.questionCount - Object.keys(answers).length} 道题没有作答。`);
       return;
     }
 
     setError("");
     setSubmitting(true);
     try {
-      const response = await fetch("/api/account/learning-profile", {
-        method: "PUT",
+      const response = await fetch("/api/onboarding/diagnostic-quiz/complete", {
+        method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          grade,
-          examDate,
-          subjects: orderedSubjects.map((subject) => ({
-            subject,
-            textbook: textbooks[subject],
-            examUnitStart: Number(unitRanges[subject].start),
-            examUnitEnd: Number(unitRanges[subject].end),
+          attemptId: quiz.id,
+          profile,
+          answers: quiz.questions.map((question) => ({
+            questionId: question.id,
+            selectedOption: answers[question.id],
           })),
         }),
       });
       const result = (await response.json()) as ApiResult;
-      if (!response.ok || !result.profile) {
-        setError(result.error ?? "学习档案暂时没有保存，请重试。");
+      if (!response.ok || !result.profile || !result.result) {
+        setError(result.error ?? "Quiz 结果暂时没有保存，请重试。");
         return;
       }
-
-      if (onComplete) {
-        onComplete(result.profile);
-      } else {
-        window.location.replace("/");
-      }
+      setCompletedProfile(result.profile);
+      setQuizResult(result.result);
     } catch {
       setError("网络连接异常，请稍后重试。");
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  function finishOnboarding() {
+    if (!completedProfile || !quizResult) return;
+    if (onComplete) {
+      onComplete(completedProfile, quizResult);
+    } else {
+      window.location.replace("/");
     }
   }
 
@@ -258,8 +344,8 @@ export function LearningQuestionnaire({
 
   const questionnaire = (
     <section className={`learning-questionnaire ${variant}`} aria-labelledby="learning-questionnaire-title">
-      <div className="questionnaire-progress" aria-label={`学习档案设置，第 ${step} 步，共 5 步`}>
-        {[1, 2, 3, 4, 5].map((item) => (
+      <div className="questionnaire-progress" aria-label={`学习档案设置，第 ${step} 步，共 6 步`}>
+        {[1, 2, 3, 4, 5, 6].map((item) => (
           <div key={item} className={item <= step ? "active" : ""} aria-current={item === step ? "step" : undefined}>
             <span>{item < step ? "✓" : item}</span>
             <i />
@@ -332,7 +418,7 @@ export function LearningQuestionnaire({
               {EXAM_DATE_PRESETS.map((preset) => {
                 const value = getDateAfterDays(preset.days);
                 return (
-                  <button key={preset.days} type="button" className={examDate === value ? "selected" : ""} onClick={() => { setExamDate(value); setError(""); }} aria-pressed={examDate === value}>
+                  <button key={preset.days} type="button" className={examDate === value ? "selected" : ""} onClick={() => { resetQuiz(); setExamDate(value); setError(""); }} aria-pressed={examDate === value}>
                     <span>{preset.hint}</span><strong>{preset.label}</strong><small>{formatExamDate(value)}</small><i>{examDate === value ? "✓" : "→"}</i>
                   </button>
                 );
@@ -340,7 +426,7 @@ export function LearningQuestionnaire({
             </div>
             <label className="exam-date-custom">
               <span><small>自定义日期</small><strong>选择具体考试日</strong></span>
-              <input type="date" value={examDate} onChange={(event) => { setExamDate(event.target.value); setError(""); }} aria-label="计划考试日期" />
+              <input type="date" value={examDate} onChange={(event) => { resetQuiz(); setExamDate(event.target.value); setError(""); }} aria-label="计划考试日期" />
             </label>
             {daysUntilExam !== null ? <div className="exam-date-confirmation"><span aria-hidden="true">日</span><div><small>计划考试时间</small><strong>{formatExamDate(examDate)}</strong><p>距离考试还有 {daysUntilExam} 天，知序会从这个日期倒推每日任务。</p></div></div> : null}
           </div>
@@ -371,11 +457,26 @@ export function LearningQuestionnaire({
             </div>
           </div>
         ) : null}
+
+        {step === 6 && quiz ? (
+          <DiagnosticQuizStep
+            quiz={quiz}
+            answers={answers}
+            result={quizResult}
+            onAnswer={(questionId, optionIndex) => {
+              setAnswers((current) => ({ ...current, [questionId]: optionIndex }));
+              setError("");
+            }}
+          />
+        ) : null}
       </div>
 
       <footer className="questionnaire-actions">
-        {step > 1 ? <button className="button" type="button" onClick={goBack} disabled={submitting}>上一步</button> : variant === "embedded" && onCancel ? <button className="button" type="button" onClick={onCancel}>取消</button> : <span />}
-        {step < 5 ? <button className="button primary" type="button" onClick={goNext}>继续 <span aria-hidden="true">→</span></button> : <button className="button primary" type="button" onClick={submit} disabled={submitting}>{submitting ? "正在保存…" : variant === "gate" ? "生成考试计划并进入" : "保存考试与学习档案"}</button>}
+        {step > 1 && !quizResult ? <button className="button" type="button" onClick={goBack} disabled={submitting}>上一步</button> : variant === "embedded" && onCancel && !quizResult ? <button className="button" type="button" onClick={onCancel}>取消</button> : <span />}
+        {step < 5 ? <button className="button primary" type="button" onClick={goNext}>继续 <span aria-hidden="true">→</span></button> : null}
+        {step === 5 ? <button className="button primary" type="button" onClick={generateQuiz} disabled={submitting}>{submitting ? "AI 正在生成 10 题…" : "生成 10 题诊断 Quiz"}</button> : null}
+        {step === 6 && !quizResult ? <button className="button primary" type="button" onClick={submitQuiz} disabled={submitting}>{submitting ? "正在分析结果…" : `提交 Quiz（已答 ${Object.keys(answers).length}/10）`}</button> : null}
+        {step === 6 && quizResult ? <button className="button primary" type="button" onClick={finishOnboarding}>{variant === "gate" ? "使用诊断结果进入知序" : "保存并返回用户中心"} <span aria-hidden="true">→</span></button> : null}
       </footer>
     </section>
   );
@@ -388,9 +489,9 @@ export function LearningQuestionnaire({
         <aside className="onboarding-story">
           <div className="auth-brand"><span className="auth-brand-mark" aria-hidden="true">序</span><span>知序</span><small>STUDY FLOW</small></div>
           <div className="onboarding-story-copy">
-            <p>首次使用 · 约 2 分钟</p>
+            <p>首次使用 · 约 5 分钟</p>
             <h2>先看考试，<br />再安排每一天。</h2>
-            <span>年级、教材、考试日期和 Unit 范围会成为计划拆解、动态调整和 AI 辅导的共同基础。</span>
+            <span>年级、教材、考试日期、Unit 范围和 10 题诊断结果，会成为计划拆解、动态调整和 AI 辅导的共同基础。</span>
           </div>
           <div className="onboarding-account">
             <span><i />当前账号</span>

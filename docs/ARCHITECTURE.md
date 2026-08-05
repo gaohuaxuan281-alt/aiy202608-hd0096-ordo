@@ -16,13 +16,17 @@
 - `features/shared/`：仅放至少被两个业务模块稳定复用的组件；不要把临时业务逻辑上移到这里。
 - `app/api/auth/`：手机号注册、登录、会话读取与退出接口。
 - `app/api/account/`：当前用户的个人资料和密码维护接口；每个接口都需要独立验证登录会话。
+- `app/api/account/diagnostic-quiz/`：供 Timeline、洞察等客户端页面读取当前用户诊断摘要，不返回正确答案。
 - `app/api/ai/respond/`：所有模块共用的模型调用接口；负责登录校验、频率限制、学习档案注入和响应保存。
+- `app/api/onboarding/diagnostic-quiz/`：首次使用诊断 Quiz 的生成与提交接口；正确答案只保存在服务端。
 - `config/ai.ts`：客户端可见的模块名称、说明和建议问题；不要在这里放密钥或服务端安全规则。
 - `lib/ai-prompts.ts`：各模块的服务端提示词边界；业务模块需要新增 AI 行为时先扩展这里。
 - `lib/openai.ts`：唯一允许访问 OpenAI Responses API 和 `OPENAI_API_KEY` 的服务层。
+- `lib/diagnostic-quiz.ts`：诊断题、答案、评分、薄弱知识点与 Timeline 读取结果的服务端边界。
+- `lib/diagnostic-quiz-generator.ts`：将年级、教材和 Unit 范围转换成 10 个覆盖目标，并校验 AI 的结构化题目输出。
 - `lib/ai-store.ts`：AI 对话和消息的 D1 持久化服务。
 - `lib/auth.ts`：账号校验、密码摘要和会话服务。业务模块不要绕过此处直接处理密码或会话 Cookie。
-- `db/schema.ts`、`drizzle/`：D1 数据表定义与迁移；用户资料保存在 `user_profiles`，年级、计划考试日期、科目教材和考试 Unit 范围保存在 `user_learning_profiles` 与 `user_subject_preferences`，AI 对话保存在 `ai_conversations` 与 `ai_messages`，所有用户业务数据通过 `user.id` 关联所有权。
+- `db/schema.ts`、`drizzle/`：D1 数据表定义与迁移；用户资料保存在 `user_profiles`，年级、计划考试日期、科目教材和考试 Unit 范围保存在 `user_learning_profiles` 与 `user_subject_preferences`，诊断数据保存在 `diagnostic_quiz_attempts`、`diagnostic_quiz_questions` 与 `diagnostic_quiz_answers`，AI 对话保存在 `ai_conversations` 与 `ai_messages`，所有用户业务数据通过 `user.id` 关联所有权。
 - `app/globals.css`：全局设计变量和框架布局。模块专用样式应与模块同目录维护。
 
 ## 八个模块
@@ -67,11 +71,13 @@
 
 ## 考试学习档案
 
-首次问卷共五步：年级、科目、教材、计划考试日期、各科教材考试 Unit 范围。考试日期使用中国本地日历的 `YYYY-MM-DD` 保存；每个科目分别保存 `examUnitStart` 与 `examUnitEnd`，范围为 Unit 1–20，且起始 Unit 不得大于结束 Unit。
+首次问卷共六步：年级、科目、教材、计划考试日期、各科教材考试 Unit 范围，以及 10 题诊断 Quiz。考试日期使用中国本地日历的 `YYYY-MM-DD` 保存；每个科目分别保存 `examUnitStart` 与 `examUnitEnd`，范围为 Unit 1–20，且起始 Unit 不得大于结束 Unit。
 
-旧账号缺少考试日期或任一科目的 Unit 范围时，`hasCompleteExamPlan()` 会让用户在进入应用前补充信息，同时保留已有年级、科目和教材选择。保存后的考试信息会显示在全局考试入口和用户中心，首页倒计时优先读取该日期，统一 AI 接口会自动注入考试日期、剩余天数和每科 Unit 范围。
+第六步按选中科目和 Unit 生成恰好 10 道原创选择题。服务端先为题目分配覆盖位置，再使用 OpenAI Structured Outputs 生成题干、选项、知识点标签和解析，并进行二次校验。生成接口只返回题目和选项；正确答案在提交评分前不会进入浏览器。提交后持久化逐题答案、分科正确率和薄弱知识点。
 
-Timeline、Todo 等模块读取 `LearningProfile` 即可获得同一份考试输入；禁止各模块另外复制或猜测考试日期与考试范围。
+旧账号缺少考试日期、任一科目的 Unit 范围，或没有与当前考试档案匹配的已完成 Quiz 时，会在进入应用前补充信息并完成诊断，同时保留已有年级、科目和教材选择。保存后的考试信息与诊断得分会显示在用户中心，首页倒计时优先读取考试日期，统一 AI 接口会自动注入考试日期、剩余天数、每科 Unit 范围、诊断正确率和薄弱知识点。
+
+Timeline、Todo 等模块读取 `LearningProfile` 获得考试输入，并通过 `getLatestCompletedDiagnosticQuiz(userId)` 获得掌握程度。禁止各模块另外复制或猜测考试日期、考试范围或诊断结果。
 
 ## 日志事件契约
 

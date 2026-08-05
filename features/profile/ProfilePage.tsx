@@ -8,6 +8,7 @@ import {
   getTextbookLabel,
 } from "../../config/learning-catalog";
 import type { LearningProfile } from "../../lib/learning-profile";
+import type { DiagnosticQuizResult } from "../../lib/diagnostic-quiz-types";
 import {
   formatExamDate,
   formatExamUnitRange,
@@ -42,13 +43,16 @@ function profileSummary(profile: UserProfile, learningProfile: LearningProfile) 
 export function ProfilePage({
   initialProfile,
   initialLearningProfile,
+  initialDiagnosticResult,
 }: {
   initialProfile: UserProfile;
   initialLearningProfile: LearningProfile;
+  initialDiagnosticResult: DiagnosticQuizResult | null;
 }) {
   const user = useAuthUser();
   const [profile, setProfile] = useState(initialProfile);
   const [learningProfile, setLearningProfile] = useState(initialLearningProfile);
+  const [diagnosticResult, setDiagnosticResult] = useState(initialDiagnosticResult);
   const [profileDraft, setProfileDraft] = useState(initialProfile);
   const [dialog, setDialog] = useState<DialogName>(null);
   const [notice, setNotice] = useState("");
@@ -230,6 +234,12 @@ export function ProfilePage({
               ))}
             </div>
           </div>
+          {diagnosticResult ? (
+            <div className="learning-diagnostic-summary">
+              <div><small>最近一次 10 题诊断</small><strong>{diagnosticResult.score}/{diagnosticResult.total}</strong><span>正确率 {diagnosticResult.percentage}%</span></div>
+              <div><small>Timeline 优先复习</small><div>{diagnosticResult.weakTopics.length ? diagnosticResult.weakTopics.slice(0, 5).map((item, index) => <span key={`${item.subject}-${item.unitNumber}-${item.knowledgePoint}-${index}`}>{item.subjectLabel} · {item.unitLabel} · {item.knowledgePoint}</span>) : <span>暂无明显薄弱知识点，安排巩固与迁移练习</span>}</div></div>
+            </div>
+          ) : null}
         </article>
 
         <article className="profile-card security-card">
@@ -279,14 +289,15 @@ export function ProfilePage({
                 variant="embedded"
                 initialProfile={learningProfile}
                 onCancel={closeDialog}
-                onComplete={(nextProfile) => {
+                onComplete={(nextProfile, nextDiagnosticResult) => {
                   setLearningProfile(nextProfile);
+                  setDiagnosticResult(nextDiagnosticResult);
                   setProfile((current) => ({
                     ...current,
                     studyStage: getGrade(nextProfile.grade).label as StudyStage,
                   }));
                   setDialog(null);
-                  setNotice("学习档案已更新，后续计划会使用新的考试日期、Unit 范围和教材信息。");
+                  setNotice("学习档案与诊断 Quiz 已更新，后续计划会使用新的考试范围和薄弱知识点。");
                 }}
               />
             ) : null}
