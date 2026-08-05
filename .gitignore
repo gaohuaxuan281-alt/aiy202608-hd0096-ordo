@@ -22,6 +22,8 @@
 # misc
 .DS_Store
 *.pem
+*.key
+secrets.*
 
 # debug
 npm-debug.log*
@@ -42,6 +44,8 @@ next-env.d.ts
 /dist/
 /.wrangler/
 /outputs/
+/output/
+/tmp/
 /work/
 
 # temporary handoff/export bundles (merge source files into the standard tree)
