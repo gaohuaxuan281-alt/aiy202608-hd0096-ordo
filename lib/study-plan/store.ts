@@ -71,7 +71,7 @@ export async function getLatestStudyPlan(userId: string): Promise<StoredStudyPla
       updated_at AS updatedAt
     FROM study_plans
     WHERE user_id = ?
-    ORDER BY updated_at DESC
+    ORDER BY updated_at DESC, created_at DESC, id DESC
     LIMIT 1`)
     .bind(userId)
     .first<StudyPlanRow>();
@@ -98,7 +98,7 @@ export async function getStudyPlans(userId: string): Promise<StoredStudyPlan[]> 
       updated_at AS updatedAt
     FROM study_plans
     WHERE user_id = ?
-    ORDER BY updated_at DESC, created_at DESC`)
+    ORDER BY updated_at DESC, created_at DESC, id DESC`)
     .bind(userId)
     .all<StudyPlanRow>();
 

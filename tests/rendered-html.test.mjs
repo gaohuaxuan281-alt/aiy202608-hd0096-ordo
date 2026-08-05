@@ -383,3 +383,42 @@ test("daily feedback reads real module context and applies AI proposals only aft
   assert.match(page, /不会冒充实际用时/);
   assert.match(page, /草案不会自动修改 Timeline/);
 });
+
+test("progress insights aggregates authenticated real data without inventing learning metrics", async () => {
+  const [pageRoute, page, apiRoute, store, layout, styles, timelineRoute, planTypes] = await Promise.all([
+    readFile(new URL("../app/insights/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../features/insights/InsightsPage.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/insights/summary/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/insights-store.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../features/insights/insights.css", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/timeline/plan/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/study-plan/types.ts", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(pageRoute, /<InsightsPage \/>/);
+  assert.match(page, /api\/insights\/summary/);
+  assert.match(page, /zhixu:open-ai/);
+  assert.match(page, /当前计划已记录实际投入/);
+  assert.match(page, /已完成任务对应计划时长/);
+  assert.match(page, /当前计划与执行记录/);
+  assert.doesNotMatch(page, /按时完成率/);
+  assert.match(apiRoute, /findUserByCookieHeader/);
+  assert.match(apiRoute, /Cache-Control/);
+  assert.match(apiRoute, /no-store/);
+  assert.match(store, /getLatestStudyPlan/);
+  assert.match(store, /normalizeSubject/);
+  assert.match(store, /subjectByLabel/);
+  assert.match(store, /Asia\/Shanghai/);
+  assert.match(store, /daily_feedbacks/);
+  assert.match(store, /actual_study_minutes/);
+  assert.match(store, /createLearningPlanFingerprint/);
+  assert.match(store, /planMatchesLearningProfile/);
+  assert.match(store, /profile_fingerprint = \?/);
+  assert.match(timelineRoute, /learningProfileFingerprint: createLearningPlanFingerprint\(learningProfile\)/);
+  assert.match(planTypes, /learningProfileFingerprint\?: string/);
+  assert.match(store, /diagnostic_quiz_attempts/);
+  assert.match(store, /ai_conversations/);
+  assert.match(layout, /features\/insights\/insights\.css/);
+  assert.match(styles, /\.insights-metrics-grid/);
+});

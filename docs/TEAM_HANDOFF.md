@@ -100,6 +100,12 @@ Todo、Timeline、AI Tutor、反馈总结、进展洞察和用户中心在业务
 
 不得从前端直接提交 Timeline 修改内容。客户端只能提交已持久化的 `adjustmentId` 和接受/拒绝决定；服务端会重新校验任务所有权、基础计划版本、硬边界和依赖。Timeline 每次接受建议都会生成新版本，Todo 无需单独同步或建表。涉及 `daily_feedbacks`、`feedback_adjustments`、`ai_request_events` 或 Study Plan 版本字段的改动必须附带 Drizzle 迁移。
 
+## 进展洞察数据接入
+
+页面实现位于 `features/insights/`，客户端只调用 `GET /api/insights/summary`；聚合逻辑和返回类型统一维护在 `lib/insights-store.ts`。员工新增图表或指标时，应先扩展 `InsightsSummary` 和服务端聚合，再更新页面，禁止客户端直查 D1、复制 Timeline/Todo 状态或填入演示统计。
+
+洞察始终按当前用户、上海自然日和最新有效 Timeline 计算。学习档案与计划的 `learningProfileFingerprint` 不一致时必须显示无有效计划并引导重新生成；Quiz 也只能使用与当前档案匹配的已完成记录。实际学习分钟数来自每日反馈，且必须限制在当前计划任务的日期范围内。
+
 ## 当前项目管理员
 
 - `@gaohuaxuan281-alt`

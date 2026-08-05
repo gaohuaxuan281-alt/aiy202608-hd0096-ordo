@@ -4,7 +4,10 @@ import {
   SUBJECTS,
 } from "../../../../config/learning-catalog";
 import { findUserByCookieHeader } from "../../../../lib/auth";
-import { getLatestCompletedDiagnosticQuiz } from "../../../../lib/diagnostic-quiz";
+import {
+  createLearningPlanFingerprint,
+  getLatestCompletedDiagnosticQuiz,
+} from "../../../../lib/diagnostic-quiz";
 import { formatExamUnitRange, getDaysUntilExam } from "../../../../lib/exam-plan";
 import { getLearningProfile } from "../../../../lib/learning-profile";
 import { AIProviderError, requestOpenAIStructuredResponse } from "../../../../lib/openai";
@@ -199,6 +202,7 @@ export async function POST(request: Request) {
       : "";
     const timelineInput: StudyPlanGenerationInput = {
       ...input,
+      learningProfileFingerprint: createLearningPlanFingerprint(learningProfile),
       examDate: learningProfile.examDate ?? input.examDate,
       extraContext: [
         input.extraContext,

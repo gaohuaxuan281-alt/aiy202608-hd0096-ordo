@@ -10,6 +10,7 @@ import {
 } from "../lib/diagnostic-quiz";
 import { getLearningProfile, hasCompleteExamPlan } from "../lib/learning-profile";
 import "./globals.css";
+import "../features/insights/insights.css";
 
 export const dynamic = "force-dynamic";
 
