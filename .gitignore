@@ -43,3 +43,7 @@ next-env.d.ts
 /.wrangler/
 /outputs/
 /work/
+
+# temporary handoff/export bundles (merge source files into the standard tree)
+*.zip
+*-upload-package/

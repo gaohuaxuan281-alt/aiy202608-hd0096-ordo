@@ -62,6 +62,11 @@ Quiz 表包括 `diagnostic_quiz_attempts`、`diagnostic_quiz_questions` 和 `dia
 - CI 构建必须通过后才可合并。
 - 不允许在业务模块之间直接导入内部组件或状态。
 - 不允许从前端直接调用 OpenAI 或读取 `OPENAI_API_KEY`；所有模块统一使用 `/api/ai/respond` 和 `config/ai.ts` 中的模块标识。
+- 不允许上传 ZIP、导出包或嵌套的完整项目副本；代码必须归位到 `app/`、`features/`、`lib/` 等标准目录。
+
+## Timeline 与 Todo 共享计划
+
+Timeline 和 Todo 已共用 `lib/study-plan/` 领域目录：`types.ts` 定义计划与任务契约，`generator.ts` 负责 AI 计划生成与校验，`store.ts` 负责 D1 持久化和当日 Todo 派生。Timeline 是权威计划来源，Todo 不得复制或另建任务源。
 
 ## 首页数据接入
 

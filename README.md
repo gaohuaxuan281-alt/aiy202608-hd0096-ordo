@@ -32,6 +32,7 @@ npm run build
 - 数据表定义与迁移：`db/schema.ts`、`drizzle/`
 - 协作与模块边界：[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 - 员工接手流程：[docs/TEAM_HANDOFF.md](docs/TEAM_HANDOFF.md)
+- 仓库目录规范：[docs/REPOSITORY_STRUCTURE.md](docs/REPOSITORY_STRUCTURE.md)
 
 员工应优先在自己负责的 `features/<module>/` 内开发，避免直接修改其他业务模块。一级路由、公共主题或壳层变更需要先确认跨模块影响。
 

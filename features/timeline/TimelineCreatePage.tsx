@@ -12,7 +12,7 @@ import {
 import type { DiagnosticQuizResult } from "../../lib/diagnostic-quiz-types";
 import { formatExamDate, formatExamUnitRange, getDaysUntilExam } from "../../lib/exam-plan";
 import type { LearningProfile } from "../../lib/learning-profile";
-import type { StoredStudyPlan, StudyPlanGenerationInput } from "../../lib/study-plan-types";
+import type { StoredStudyPlan, StudyPlanGenerationInput } from "../../lib/study-plan/types";
 
 type TimelinePlanResponse = {
   error?: string;
@@ -71,7 +71,18 @@ export function TimelineCreatePage() {
         const profileResult = (await profileResponse.json()) as LearningProfileResponse;
         const diagnosticResult = (await diagnosticResponse.json()) as DiagnosticResponse;
         if (ignore) return;
-        if (profileResponse.ok) setLearningProfile(profileResult.profile ?? null);
+        if (profileResponse.ok) {
+          const profile = profileResult.profile ?? null;
+          setLearningProfile(profile);
+          if (profile?.examDate) {
+            const examName = `${profile.subjects.map((item) => SUBJECTS[item.subject].label).join("、")}考试`;
+            setForm((current) => ({
+              ...current,
+              examName: current.examName || examName,
+              examDate: current.examDate || profile.examDate || "",
+            }));
+          }
+        }
         if (diagnosticResponse.ok) setDiagnostic(diagnosticResult.diagnostic ?? null);
       } catch {
         if (!ignore) setError("网络连接异常，请稍后重试。");

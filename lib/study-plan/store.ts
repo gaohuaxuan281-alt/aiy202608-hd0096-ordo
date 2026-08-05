@@ -1,7 +1,7 @@
 import "server-only";
 
-import { getD1 } from "../db";
-import { ensureAuthSchema } from "./auth";
+import { getD1 } from "../../db";
+import { ensureAuthSchema } from "../auth";
 import type {
   StoredStudyPlan,
   StudyPlanDocument,
@@ -11,7 +11,7 @@ import type {
   StudyPlanTaskStatus,
   TodoSnapshot,
   TodoTaskSlice,
-} from "./study-plan-types";
+} from "./types";
 
 type StudyPlanRow = {
   id: string;

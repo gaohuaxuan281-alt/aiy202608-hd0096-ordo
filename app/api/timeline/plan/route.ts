@@ -7,16 +7,16 @@ import { findUserByCookieHeader } from "../../../../lib/auth";
 import { getLatestCompletedDiagnosticQuiz } from "../../../../lib/diagnostic-quiz";
 import { formatExamUnitRange, getDaysUntilExam } from "../../../../lib/exam-plan";
 import { getLearningProfile } from "../../../../lib/learning-profile";
-import { AIProviderError, requestOpenAIResponse } from "../../../../lib/openai";
+import { AIProviderError, requestOpenAIStructuredResponse } from "../../../../lib/openai";
 import { getUserProfile } from "../../../../lib/profile";
 import {
   buildFallbackStudyPlan,
   buildTimelineGenerationInstructions,
   parseStudyPlanFromAI,
   TIMELINE_PLAN_JSON_SCHEMA,
-} from "../../../../lib/study-plan-ai";
-import { getStudyPlans, saveStudyPlan } from "../../../../lib/study-plan-store";
-import type { StudyPlanGenerationInput } from "../../../../lib/study-plan-types";
+} from "../../../../lib/study-plan/generator";
+import { getStudyPlans, saveStudyPlan } from "../../../../lib/study-plan/store";
+import type { StudyPlanGenerationInput } from "../../../../lib/study-plan/types";
 
 const MIN_DAILY_MINUTES = 30;
 const MAX_DAILY_MINUTES = 12 * 60;
@@ -120,9 +120,8 @@ async function repairTimelinePlan({
   userId: string;
   rawText: string;
 }) {
-  return requestOpenAIResponse({
+  return requestOpenAIStructuredResponse({
     userId,
-    module: "timeline",
     instructions: `你是 JSON 修复器。你的唯一任务是把用户提供的 Timeline 计划文本修复为合法 JSON。
 
 要求：
@@ -130,12 +129,10 @@ async function repairTimelinePlan({
 2. 不要补充产品说明，不要输出 Markdown。
 3. 保留原始语义，缺失字段只做最小补全。
 4. 输出必须满足给定 schema。`,
-    history: [],
     message: `请修复下面这段可能被截断、含非法换行或格式错误的 Timeline JSON，并只返回修复后的合法 JSON：\n\n${rawText}`,
-    structuredOutput: {
-      name: "timeline_plan_repair",
-      schema: TIMELINE_PLAN_JSON_SCHEMA as Record<string, unknown>,
-    },
+    schemaName: "timeline_plan_repair",
+    schema: TIMELINE_PLAN_JSON_SCHEMA as Record<string, unknown>,
+    maxOutputTokens: 2_200,
   });
 }
 
@@ -218,9 +215,8 @@ export async function POST(request: Request) {
     let generatedBy = "timeline-fallback";
 
     try {
-      const aiResponse = await requestOpenAIResponse({
+      const aiResponse = await requestOpenAIStructuredResponse({
         userId: user.id,
-        module: "timeline",
         instructions: buildTimelineGenerationInstructions({
           displayName: userProfile.displayName,
           userProfile: {
@@ -232,16 +228,14 @@ export async function POST(request: Request) {
           input: timelineInput,
           diagnosticWeakTopics: diagnosticResult?.weakTopics ?? [],
         }),
-        history: [],
         message: `请根据这些信息生成 ${timelineInput.examName} 的考前 Timeline，并让 Todo 能从其中直接派生。`,
-        structuredOutput: {
-          name: "timeline_plan",
-          schema: TIMELINE_PLAN_JSON_SCHEMA as Record<string, unknown>,
-        },
+        schemaName: "timeline_plan",
+        schema: TIMELINE_PLAN_JSON_SCHEMA as Record<string, unknown>,
+        maxOutputTokens: 2_200,
       });
 
       generatedBy = aiResponse.model;
-      planText = aiResponse.text;
+      planText = JSON.stringify(aiResponse.data);
       plan = parseStudyPlanFromAI({
         rawText: planText,
         examName: timelineInput.examName,
@@ -255,7 +249,7 @@ export async function POST(request: Request) {
         console.error("Timeline raw AI response preview", planText.slice(0, 1200));
         try {
           const repaired = await repairTimelinePlan({ userId: user.id, rawText: planText });
-          planText = repaired.text;
+          planText = JSON.stringify(repaired.data);
           plan = parseStudyPlanFromAI({
             rawText: planText,
             examName: timelineInput.examName,

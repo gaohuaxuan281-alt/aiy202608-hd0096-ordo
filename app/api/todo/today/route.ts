@@ -1,5 +1,5 @@
 import { findUserByCookieHeader } from "../../../../lib/auth";
-import { buildTodoSnapshot, getLatestStudyPlan } from "../../../../lib/study-plan-store";
+import { buildTodoSnapshot, getLatestStudyPlan } from "../../../../lib/study-plan/store";
 
 export async function GET(request: Request) {
   const user = await findUserByCookieHeader(request.headers.get("cookie"));

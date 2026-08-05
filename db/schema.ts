@@ -174,6 +174,29 @@ export const aiMessages = sqliteTable(
   (table) => [index("idx_ai_messages_conversation_created").on(table.conversationId, table.createdAt)],
 );
 
+export const studyPlans = sqliteTable(
+  "study_plans",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    examName: text("exam_name").notNull(),
+    examDate: text("exam_date").notNull(),
+    targetScore: text("target_score").notNull(),
+    inputJson: text("input_json").notNull(),
+    planJson: text("plan_json").notNull(),
+    model: text("model").notNull(),
+    rawResponse: text("raw_response").notNull(),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (table) => [
+    index("idx_study_plans_user_updated").on(table.userId, table.updatedAt),
+    index("idx_study_plans_user_exam").on(table.userId, table.examDate),
+  ],
+);
+
 export const journalEntries = sqliteTable(
   "journal_entries",
   {

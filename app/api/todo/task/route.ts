@@ -2,8 +2,8 @@ import { findUserByCookieHeader } from "../../../../lib/auth";
 import {
   buildTodoSnapshot,
   updateStudyPlanTaskStatus,
-} from "../../../../lib/study-plan-store";
-import type { StudyPlanTaskStatus } from "../../../../lib/study-plan-types";
+} from "../../../../lib/study-plan/store";
+import type { StudyPlanTaskStatus } from "../../../../lib/study-plan/types";
 
 type TodoTaskUpdatePayload = {
   taskId?: unknown;

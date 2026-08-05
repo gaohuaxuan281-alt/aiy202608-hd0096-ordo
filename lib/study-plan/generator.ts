@@ -1,13 +1,13 @@
-import type { LearningProfile } from "./learning-profile";
-import type { DiagnosticQuizWeakTopic } from "./diagnostic-quiz-types";
-import type { UserProfile } from "./profile-types";
+import type { LearningProfile } from "../learning-profile";
+import type { DiagnosticQuizWeakTopic } from "../diagnostic-quiz-types";
+import type { UserProfile } from "../profile-types";
 import type {
   StudyPlanAdjustment,
   StudyPlanDocument,
   StudyPlanGenerationInput,
   StudyPlanRisk,
   StudyPlanTask,
-} from "./study-plan-types";
+} from "./types";
 
 type SubjectDescriptor = {
   subject: string;

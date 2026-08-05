@@ -142,6 +142,22 @@ export async function ensureAuthSchema() {
           FOREIGN KEY (conversation_id) REFERENCES ai_conversations(id) ON UPDATE no action ON DELETE cascade
         )`),
         d1.prepare("CREATE INDEX IF NOT EXISTS idx_ai_messages_conversation_created ON ai_messages (conversation_id, created_at)"),
+        d1.prepare(`CREATE TABLE IF NOT EXISTS study_plans (
+          id TEXT PRIMARY KEY NOT NULL,
+          user_id TEXT NOT NULL,
+          exam_name TEXT NOT NULL,
+          exam_date TEXT NOT NULL,
+          target_score TEXT NOT NULL,
+          input_json TEXT NOT NULL,
+          plan_json TEXT NOT NULL,
+          model TEXT NOT NULL,
+          raw_response TEXT NOT NULL,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          FOREIGN KEY (user_id) REFERENCES users(id) ON UPDATE no action ON DELETE cascade
+        )`),
+        d1.prepare("CREATE INDEX IF NOT EXISTS idx_study_plans_user_updated ON study_plans (user_id, updated_at)"),
+        d1.prepare("CREATE INDEX IF NOT EXISTS idx_study_plans_user_exam ON study_plans (user_id, exam_date)"),
         d1.prepare(`CREATE TABLE IF NOT EXISTS journal_entries (
           id TEXT PRIMARY KEY NOT NULL,
           user_id TEXT NOT NULL,
