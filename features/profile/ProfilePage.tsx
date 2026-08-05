@@ -9,6 +9,11 @@ import {
 } from "../../config/learning-catalog";
 import type { LearningProfile } from "../../lib/learning-profile";
 import {
+  formatExamDate,
+  formatExamUnitRange,
+  getDaysUntilExam,
+} from "../../lib/exam-plan";
+import {
   STUDY_STAGES,
   type StudyStage,
   type UserProfile,
@@ -168,7 +173,7 @@ export function ProfilePage({
           <h1>用户中心</h1>
           <p>管理个人资料、账号安全与会员方案。</p>
         </div>
-        <div className="profile-heading-actions"><button className="button" type="button" onClick={() => window.dispatchEvent(new CustomEvent("zhixu:open-ai", { detail: { module: "profile", prompt: "请根据我的年级、科目和教材，给出使用知序的设置建议。" } }))}>✦ AI 学习建议</button><span className="account-status"><i />账号状态正常</span></div>
+        <div className="profile-heading-actions"><button className="button" type="button" onClick={() => window.dispatchEvent(new CustomEvent("zhixu:open-ai", { detail: { module: "profile", prompt: "请根据我的年级、科目、教材、考试日期和考试范围，给出使用知序的设置建议。" } }))}>✦ AI 学习建议</button><span className="account-status"><i />账号状态正常</span></div>
       </header>
 
       {notice ? (
@@ -218,9 +223,10 @@ export function ProfilePage({
           </div>
           <div className="learning-profile-summary">
             <div className="learning-grade-badge"><small>当前年级</small><strong>{getGrade(learningProfile.grade).label}</strong><span>{getGrade(learningProfile.grade).stage}</span></div>
+            <div className="learning-exam-badge"><small>计划考试</small><strong>{formatExamDate(learningProfile.examDate ?? "")}</strong><span>距离考试 {learningProfile.examDate ? getDaysUntilExam(learningProfile.examDate) : "—"} 天</span></div>
             <div className="learning-subject-list">
               {learningProfile.subjects.map((item) => (
-                <div key={item.subject}><i aria-hidden="true">{SUBJECTS[item.subject].glyph}</i><span><strong>{SUBJECTS[item.subject].label}</strong><small>{getTextbookLabel(learningProfile.grade, item.subject, item.textbook)}</small></span></div>
+                <div key={item.subject}><i aria-hidden="true">{SUBJECTS[item.subject].glyph}</i><span><strong>{SUBJECTS[item.subject].label}</strong><small>{getTextbookLabel(learningProfile.grade, item.subject, item.textbook)}</small><em>{formatExamUnitRange(item.subject, item.examUnitStart, item.examUnitEnd)}</em></span></div>
               ))}
             </div>
           </div>
@@ -280,7 +286,7 @@ export function ProfilePage({
                     studyStage: getGrade(nextProfile.grade).label as StudyStage,
                   }));
                   setDialog(null);
-                  setNotice("学习档案已更新，后续计划会使用新的年级、科目和教材信息。");
+                  setNotice("学习档案已更新，后续计划会使用新的考试日期、Unit 范围和教材信息。");
                 }}
               />
             ) : null}

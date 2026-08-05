@@ -22,7 +22,7 @@
 - `lib/openai.ts`：唯一允许访问 OpenAI Responses API 和 `OPENAI_API_KEY` 的服务层。
 - `lib/ai-store.ts`：AI 对话和消息的 D1 持久化服务。
 - `lib/auth.ts`：账号校验、密码摘要和会话服务。业务模块不要绕过此处直接处理密码或会话 Cookie。
-- `db/schema.ts`、`drizzle/`：D1 数据表定义与迁移；用户资料保存在 `user_profiles`，AI 对话保存在 `ai_conversations` 与 `ai_messages`，后续用户业务数据应通过 `user.id` 关联所有权。
+- `db/schema.ts`、`drizzle/`：D1 数据表定义与迁移；用户资料保存在 `user_profiles`，年级、计划考试日期、科目教材和考试 Unit 范围保存在 `user_learning_profiles` 与 `user_subject_preferences`，AI 对话保存在 `ai_conversations` 与 `ai_messages`，所有用户业务数据通过 `user.id` 关联所有权。
 - `app/globals.css`：全局设计变量和框架布局。模块专用样式应与模块同目录维护。
 
 ## 八个模块
@@ -64,6 +64,14 @@
 | 操作来源说明 | 日志 | 展示最近事件，不编辑日志 |
 
 接入顺序：先在本模块实现查询函数，再替换 `placeholderHomeAdapters` 对应方法，保持 `HomeDashboardSnapshot` 字段稳定。任何调整都必须在 Timeline 中由用户确认后落地，首页不能直接写入 Timeline 或 Todo。
+
+## 考试学习档案
+
+首次问卷共五步：年级、科目、教材、计划考试日期、各科教材考试 Unit 范围。考试日期使用中国本地日历的 `YYYY-MM-DD` 保存；每个科目分别保存 `examUnitStart` 与 `examUnitEnd`，范围为 Unit 1–20，且起始 Unit 不得大于结束 Unit。
+
+旧账号缺少考试日期或任一科目的 Unit 范围时，`hasCompleteExamPlan()` 会让用户在进入应用前补充信息，同时保留已有年级、科目和教材选择。保存后的考试信息会显示在全局考试入口和用户中心，首页倒计时优先读取该日期，统一 AI 接口会自动注入考试日期、剩余天数和每科 Unit 范围。
+
+Timeline、Todo 等模块读取 `LearningProfile` 即可获得同一份考试输入；禁止各模块另外复制或猜测考试日期与考试范围。
 
 ## 日志事件契约
 

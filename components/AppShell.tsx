@@ -4,7 +4,10 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { navigation } from "../config/navigation";
+import { SUBJECTS } from "../config/learning-catalog";
 import type { AuthUser } from "../lib/auth";
+import { getDaysUntilExam } from "../lib/exam-plan";
+import type { LearningProfile } from "../lib/learning-profile";
 import { AuthSessionProvider } from "./AuthSession";
 import { GlobalAIAssistant } from "./GlobalAIAssistant";
 
@@ -12,10 +15,22 @@ function maskPhone(phone: string) {
   return `${phone.slice(0, 3)} ···· ${phone.slice(-4)}`;
 }
 
-export function AppShell({ children, user }: { children: React.ReactNode; user: AuthUser }) {
+export function AppShell({
+  children,
+  user,
+  learningProfile,
+}: {
+  children: React.ReactNode;
+  user: AuthUser;
+  learningProfile: LearningProfile;
+}) {
   const pathname = usePathname();
   const [menuOpen, setMenuOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+  const examDays = learningProfile.examDate ? getDaysUntilExam(learningProfile.examDate) : 0;
+  const examLabel = learningProfile.subjects.length === 1
+    ? `${SUBJECTS[learningProfile.subjects[0].subject].label}考试`
+    : `${learningProfile.subjects.length} 科考试计划`;
 
   return (
     <AuthSessionProvider user={user}>
@@ -37,7 +52,7 @@ export function AppShell({ children, user }: { children: React.ReactNode; user: 
           </Link>
 
           <div className="exam-switcher">
-            <div><small>当前考试 · 8 天</small><strong>高二上学期期中</strong></div>
+            <div><small>当前考试 · {examDays} 天</small><strong>{examLabel}</strong></div>
             <span aria-hidden="true">⌄</span>
           </div>
 

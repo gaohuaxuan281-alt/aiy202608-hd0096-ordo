@@ -11,8 +11,8 @@ test("unauthenticated visitors see the phone login gateway and new users enter o
 
   assert.match(layout, /!user \? \(/);
   assert.match(layout, /<AuthPortal \/>/);
-  assert.match(layout, /!learningProfile \? \(/);
-  assert.match(layout, /<LearningQuestionnaire initialProfile=\{null\}/);
+  assert.match(layout, /!hasCompleteExamPlan\(learningProfile\) \? \(/);
+  assert.match(layout, /<LearningQuestionnaire initialProfile=\{learningProfile\}/);
   assert.match(portal, /欢迎回来/);
   assert.match(portal, /登录并进入知序/);
   assert.match(portal, /立即注册/);
@@ -20,14 +20,23 @@ test("unauthenticated visitors see the phone login gateway and new users enter o
   assert.match(questionnaire, /你现在读几年级/);
   assert.match(questionnaire, /这次想规划哪些科目/);
   assert.match(questionnaire, /你正在使用哪套教材/);
+  assert.match(questionnaire, /计划什么时候考试/);
+  assert.match(questionnaire, /这次考试考哪些 Unit/);
+  assert.match(questionnaire, /下周考试/);
+  assert.match(questionnaire, /Unit 1–3/);
+  assert.match(questionnaire, /共 5 步/);
   assert.match(questionnaire, /api\/account\/learning-profile/);
 });
 
-test("learning catalog covers primary grade one through senior grade three with common textbooks", async () => {
-  const [catalog, learningRoute, schema] = await Promise.all([
+test("learning catalog and exam plan cover grade one through senior three with durable textbook unit ranges", async () => {
+  const [catalog, questionnaire, learningRoute, learningService, examPlan, schema, migration] = await Promise.all([
     readFile(new URL("../config/learning-catalog.ts", import.meta.url), "utf8"),
+    readFile(new URL("../features/onboarding/LearningQuestionnaire.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/api/account/learning-profile/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/learning-profile.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/exam-plan.ts", import.meta.url), "utf8"),
     readFile(new URL("../db/schema.ts", import.meta.url), "utf8"),
+    readFile(new URL("../drizzle/0005_yielding_misty_knight.sql", import.meta.url), "utf8"),
   ]);
 
   assert.match(catalog, /id: "p1", label: "一年级"/);
@@ -37,8 +46,18 @@ test("learning catalog covers primary grade one through senior grade three with 
   assert.match(catalog, /统编版/);
   assert.match(learningRoute, /getSubjectsForGrade/);
   assert.match(learningRoute, /getTextbookLabel/);
+  assert.match(learningRoute, /isValidExamDate/);
+  assert.match(learningRoute, /isValidUnitRange/);
+  assert.match(questionnaire, /examUnitStart/);
+  assert.match(questionnaire, /examUnitEnd/);
+  assert.match(examPlan, /MAX_EXAM_UNIT = 20/);
+  assert.match(learningService, /hasCompleteExamPlan/);
   assert.match(schema, /userLearningProfiles/);
   assert.match(schema, /userSubjectPreferences/);
+  assert.match(schema, /examDate: text\("exam_date"\)/);
+  assert.match(schema, /examUnitStart: integer\("exam_unit_start"\)/);
+  assert.match(migration, /ADD `exam_date` text/);
+  assert.match(migration, /ADD `exam_unit_start` integer/);
 });
 
 test("account implementation keeps passwords hashed and sessions server-only", async () => {
@@ -109,6 +128,8 @@ test("all product modules share one authenticated and server-only OpenAI service
   assert.match(openaiService, /OPENAI_API_KEY/);
   assert.match(openaiService, /store: false/);
   assert.match(openaiService, /safety_identifier/);
+  assert.match(aiRoute, /计划考试日期/);
+  assert.match(aiRoute, /考试范围/);
   assert.match(appShell, /GlobalAIAssistant/);
   assert.match(tutorWorkspace, /useAIConversation\("ai-tutor"\)/);
   assert.match(featureScaffold, /zhixu:open-ai/);

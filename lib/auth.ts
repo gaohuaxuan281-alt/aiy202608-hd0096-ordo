@@ -62,6 +62,7 @@ export async function ensureAuthSchema() {
         d1.prepare(`CREATE TABLE IF NOT EXISTS user_learning_profiles (
           user_id TEXT PRIMARY KEY NOT NULL,
           grade TEXT NOT NULL,
+          exam_date TEXT,
           completed_at INTEGER NOT NULL,
           updated_at INTEGER NOT NULL,
           FOREIGN KEY (user_id) REFERENCES users(id) ON UPDATE no action ON DELETE cascade
@@ -70,6 +71,8 @@ export async function ensureAuthSchema() {
           user_id TEXT NOT NULL,
           subject TEXT NOT NULL,
           textbook TEXT NOT NULL,
+          exam_unit_start INTEGER,
+          exam_unit_end INTEGER,
           updated_at INTEGER NOT NULL,
           PRIMARY KEY (user_id, subject),
           FOREIGN KEY (user_id) REFERENCES users(id) ON UPDATE no action ON DELETE cascade
@@ -122,7 +125,25 @@ export async function ensureAuthSchema() {
         d1.prepare("CREATE INDEX IF NOT EXISTS idx_journal_entries_user_occurred ON journal_entries (user_id, occurred_at)"),
         d1.prepare("CREATE INDEX IF NOT EXISTS idx_journal_entries_user_module ON journal_entries (user_id, module)"),
       ])
-      .then(() => undefined)
+      .then(async () => {
+        const [learningProfileColumns, subjectPreferenceColumns] = await Promise.all([
+          d1.prepare("PRAGMA table_info(user_learning_profiles)").all<{ name: string }>(),
+          d1.prepare("PRAGMA table_info(user_subject_preferences)").all<{ name: string }>(),
+        ]);
+        const learningNames = new Set((learningProfileColumns.results ?? []).map((item) => item.name));
+        const subjectNames = new Set((subjectPreferenceColumns.results ?? []).map((item) => item.name));
+        const migrations = [];
+        if (!learningNames.has("exam_date")) {
+          migrations.push(d1.prepare("ALTER TABLE user_learning_profiles ADD COLUMN exam_date TEXT"));
+        }
+        if (!subjectNames.has("exam_unit_start")) {
+          migrations.push(d1.prepare("ALTER TABLE user_subject_preferences ADD COLUMN exam_unit_start INTEGER"));
+        }
+        if (!subjectNames.has("exam_unit_end")) {
+          migrations.push(d1.prepare("ALTER TABLE user_subject_preferences ADD COLUMN exam_unit_end INTEGER"));
+        }
+        if (migrations.length) await d1.batch(migrations);
+      })
       .catch((error: unknown) => {
         authSchemaPromise = null;
         throw error;

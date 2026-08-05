@@ -52,6 +52,7 @@ export const userLearningProfiles = sqliteTable("user_learning_profiles", {
     .primaryKey()
     .references(() => users.id, { onDelete: "cascade" }),
   grade: text("grade").notNull(),
+  examDate: text("exam_date"),
   completedAt: integer("completed_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
 });
@@ -64,6 +65,8 @@ export const userSubjectPreferences = sqliteTable(
       .references(() => users.id, { onDelete: "cascade" }),
     subject: text("subject").notNull(),
     textbook: text("textbook").notNull(),
+    examUnitStart: integer("exam_unit_start"),
+    examUnitEnd: integer("exam_unit_end"),
     updatedAt: integer("updated_at").notNull(),
   },
   (table) => [primaryKey({ columns: [table.userId, table.subject] })],

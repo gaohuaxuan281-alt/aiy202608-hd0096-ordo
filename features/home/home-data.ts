@@ -1,5 +1,12 @@
 import "server-only";
 
+import { SUBJECTS } from "../../config/learning-catalog";
+import {
+  formatExamDate,
+  formatExamUnitRange,
+  getDaysUntilExam,
+} from "../../lib/exam-plan";
+import type { LearningProfile } from "../../lib/learning-profile";
 import type {
   HomeDashboardAdapters,
   HomeDashboardSnapshot,
@@ -168,8 +175,47 @@ export const placeholderHomeAdapters: HomeDashboardAdapters = {
   insights: placeholderInsights,
 };
 
+function applyExamPlan(
+  timeline: HomeTimelineSlice,
+  examPlan: LearningProfile | null,
+): HomeTimelineSlice {
+  if (!examPlan?.examDate) return timeline;
+  const subjectLabels = examPlan.subjects.map((item) => SUBJECTS[item.subject].label);
+  const firstSubject = examPlan.subjects[0];
+  const firstRange = firstSubject
+    ? formatExamUnitRange(firstSubject.subject, firstSubject.examUnitStart, firstSubject.examUnitEnd)
+    : "考试范围";
+
+  return {
+    ...timeline,
+    exam: {
+      id: "exam-learning-profile",
+      name: subjectLabels.length === 1 ? `${subjectLabels[0]}考试` : `${subjectLabels.join("、")}考试`,
+      startsAt: `${examPlan.examDate}T09:00:00+08:00`,
+      dateLabel: formatExamDate(examPlan.examDate),
+      daysRemaining: getDaysUntilExam(examPlan.examDate),
+      planStatusLabel: "考试范围已同步",
+    },
+    nextTask: firstSubject
+      ? {
+          ...timeline.nextTask,
+          subject: SUBJECTS[firstSubject.subject].label,
+          title: `复习 ${firstRange} 核心内容`,
+          completionCriteria: `覆盖${firstRange}，标记仍未掌握的知识点`,
+          sourceLabel: "由考试范围生成",
+        }
+      : timeline.nextTask,
+  };
+}
+
 export async function getHomeDashboardSnapshot(
-  adapters: HomeDashboardAdapters = placeholderHomeAdapters,
+  {
+    adapters = placeholderHomeAdapters,
+    examPlan = null,
+  }: {
+    adapters?: HomeDashboardAdapters;
+    examPlan?: LearningProfile | null;
+  } = {},
 ): Promise<HomeDashboardSnapshot> {
   const [timeline, todo, tutor, summary, insights] = await Promise.all([
     adapters.timeline(),
@@ -189,7 +235,7 @@ export async function getHomeDashboardSnapshot(
       weekday: "long",
     }).format(now),
     greeting: now.getHours() < 12 ? "早上好" : now.getHours() < 18 ? "下午好" : "晚上好",
-    timeline,
+    timeline: applyExamPlan(timeline, examPlan),
     todo,
     tutor,
     summary,

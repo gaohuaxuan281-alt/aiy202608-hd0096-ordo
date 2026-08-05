@@ -4,7 +4,7 @@ import { AppShell } from "../components/AppShell";
 import { AuthPortal } from "../components/AuthPortal";
 import { LearningQuestionnaire } from "../features/onboarding/LearningQuestionnaire";
 import { getCurrentUser } from "../lib/current-user";
-import { getLearningProfile } from "../lib/learning-profile";
+import { getLearningProfile, hasCompleteExamPlan } from "../lib/learning-profile";
 import "./globals.css";
 
 export const dynamic = "force-dynamic";
@@ -53,10 +53,10 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
       <body>
         {!user ? (
           <AuthPortal />
-        ) : !learningProfile ? (
-          <LearningQuestionnaire initialProfile={null} phone={user.phone} />
+        ) : !hasCompleteExamPlan(learningProfile) ? (
+          <LearningQuestionnaire initialProfile={learningProfile} phone={user.phone} />
         ) : (
-          <AppShell user={user}>{children}</AppShell>
+          <AppShell user={user} learningProfile={learningProfile}>{children}</AppShell>
         )}
       </body>
     </html>

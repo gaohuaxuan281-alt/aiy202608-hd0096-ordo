@@ -39,6 +39,8 @@ git status
 
 本地使用 AI 功能前，将 `.env.example` 复制为 `.env.local`，由项目管理员提供并写入开发密钥。真实密钥不得通过聊天、邮件、代码提交或 PR 传递。
 
+首次学习问卷保存 `grade`、`examDate` 以及每科的 `textbook`、`examUnitStart`、`examUnitEnd`。Timeline、Todo、AI Tutor 和首页需要考试上下文时，统一读取 `LearningProfile`；不要在各模块重复创建考试日期或 Unit 范围字段。旧账号会在进入应用前被引导补齐新增信息。
+
 ## 合并规则
 
 - `main` 只接收通过 Pull Request 的改动。

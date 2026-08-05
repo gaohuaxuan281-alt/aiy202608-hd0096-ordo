@@ -16,6 +16,11 @@ import {
 } from "../../../../lib/ai-store";
 import { AI_MODULE_INSTRUCTIONS } from "../../../../lib/ai-prompts";
 import { findUserByCookieHeader } from "../../../../lib/auth";
+import {
+  formatExamDate,
+  formatExamUnitRange,
+  getDaysUntilExam,
+} from "../../../../lib/exam-plan";
 import { getLearningProfile } from "../../../../lib/learning-profile";
 import { AIProviderError, requestOpenAIResponse } from "../../../../lib/openai";
 import { getUserProfile } from "../../../../lib/profile";
@@ -167,8 +172,12 @@ export async function POST(request: Request) {
           `科目与教材：${learningProfile.subjects
             .map((item) => `${SUBJECTS[item.subject].label}（${getTextbookLabel(learningProfile.grade, item.subject, item.textbook)}）`)
             .join("、")}`,
+          `计划考试日期：${learningProfile.examDate ? `${formatExamDate(learningProfile.examDate)}（还有 ${getDaysUntilExam(learningProfile.examDate)} 天）` : "尚未设置"}`,
+          `考试范围：${learningProfile.subjects
+            .map((item) => `${SUBJECTS[item.subject].label} ${formatExamUnitRange(item.subject, item.examUnitStart, item.examUnitEnd)}`)
+            .join("；")}`,
         ].join("\n- ")
-      : "年级、科目和教材尚未设置";
+      : "年级、科目、教材和考试范围尚未设置";
 
     const aiResponse = await requestOpenAIResponse({
       userId: user.id,
