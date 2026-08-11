@@ -126,6 +126,35 @@ test("onboarding stores the study window and recovers initial timeline creation"
   assert.match(layout, /initialTimelineReady/);
 });
 
+test("timeline generates concrete micro tasks with a hard 30 minute ceiling", async () => {
+  const [generator, granularity, route, timelinePage, feedbackGenerator, planStore] = await Promise.all([
+    readFile(new URL("../lib/study-plan/generator.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/study-plan/granularity.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/timeline/plan/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../features/timeline/TimelinePage.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../lib/daily-feedback-generator.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/study-plan/store.ts", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(granularity, /MIN_TIMELINE_TASK_MINUTES = 10/);
+  assert.match(granularity, /PREFERRED_MAX_TIMELINE_TASK_MINUTES = 20/);
+  assert.match(granularity, /MAX_TIMELINE_TASK_MINUTES = 30/);
+  assert.match(granularity, /splitTimelineTaskDurations/);
+  assert.match(generator, /时长优先 10–20 分钟，永远不能超过 30 分钟/);
+  assert.match(generator, /完成函数单调性3题并订正/);
+  assert.match(generator, /goal 必须写成 2–3 个带序号的执行步骤/);
+  assert.match(generator, /completionCriteria 必须可量化、可勾选验收/);
+  assert.match(generator, /expandDayBlueprints/);
+  assert.match(generator, /durationMinutes: phase === 1/);
+  assert.match(route, /onboarding-timeline:v3/);
+  assert.match(route, /最多 30 分钟、可以直接照做并能量化验收的微任务/);
+  assert.match(timelinePage, /执行步骤：/);
+  assert.match(timelinePage, /验收标准：/);
+  assert.match(feedbackGenerator, /target\.durationMinutes > MAX_TIMELINE_TASK_MINUTES/);
+  assert.match(planStore, /validateGeneratedPlanGranularity/);
+  assert.match(planStore, /splitTimelineTaskDurations\(target\.durationMinutes\)/);
+});
+
 test("onboarding diagnostic quiz generates 10 AI questions and stores timeline-ready mastery data", async () => {
   const [
     questionnaire,
