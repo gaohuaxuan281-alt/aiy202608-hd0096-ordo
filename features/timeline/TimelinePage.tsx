@@ -164,7 +164,7 @@ export function TimelinePage() {
         <div>
           <p className="eyebrow">PLAN &amp; SCHEDULE</p>
           <h1>Timeline</h1>
-          <p>这里把所有计划里的任务汇总成同一个总 Timeline，按时间顺序排列；每条任务默认折叠，底部再统一放各条 Timeline 的日期和摘要。</p>
+          <p>这里把计划拆成优先 10–20 分钟、最多 30 分钟的可执行微任务；展开任务即可按步骤完成并对照标准验收。</p>
         </div>
         <div className="heading-actions">
           <button className="button" type="button" onClick={openTimelineAI}>✦ 检查计划风险</button>
@@ -262,8 +262,8 @@ export function TimelinePage() {
                             </div>
                             {expanded ? (
                               <>
-                                <p>{entry.task.goal}</p>
-                                <small>完成标准：{entry.task.completionCriteria}</small>
+                                <p><strong>执行步骤：</strong>{entry.task.goal}</p>
+                                <small>验收标准：{entry.task.completionCriteria}</small>
                                 <small>安排原因：{entry.task.reason}</small>
                                 <small>来源计划：{entry.examName} · {formatGeneratedAt(entry.generatedAt)}</small>
                                 {entry.task.knowledgePoints.length ? (
