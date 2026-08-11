@@ -9,6 +9,12 @@ import type {
 } from "../features/summary/summary-types";
 import type { StoredStudyPlan, StudyPlanTask } from "./study-plan/types";
 import { parsePlanHardConstraints } from "./study-plan/constraints";
+import {
+  MAX_TIMELINE_TASK_MINUTES,
+  MIN_TIMELINE_TASK_MINUTES,
+  PREFERRED_MAX_TIMELINE_TASK_MINUTES,
+  splitTimelineTaskDurations,
+} from "./study-plan/granularity";
 import { requestOpenAIStructuredResponse } from "./openai";
 
 type AIAdjustment = {
@@ -101,7 +107,11 @@ export const DAILY_FEEDBACK_JSON_SCHEMA = {
           reason: { type: "string", maxLength: 240 },
           date: { type: ["string", "null"] },
           startTime: { type: ["string", "null"] },
-          durationMinutes: { type: ["integer", "null"] },
+          durationMinutes: {
+            type: ["integer", "null"],
+            minimum: MIN_TIMELINE_TASK_MINUTES,
+            maximum: MAX_TIMELINE_TASK_MINUTES,
+          },
           subject: { type: ["string", "null"] },
           knowledgePoint: { type: ["string", "null"] },
         },
@@ -154,9 +164,8 @@ function afterLabel(adjustment: AIAdjustment, task: StudyPlanTask | null) {
     return `${adjustment.date} ${adjustment.startTime} 开始 · ${task?.durationMinutes ?? adjustment.durationMinutes ?? 0} 分钟`;
   }
   if (adjustment.operation === "split_task") {
-    const first = task ? Math.ceil(task.durationMinutes / 2) : 0;
-    const second = task ? task.durationMinutes - first : 0;
-    return `拆成连续的 ${first} 分钟和 ${second} 分钟两项任务`;
+    const durations = task ? splitTimelineTaskDurations(task.durationMinutes) : [];
+    return `拆成连续的 ${durations.join("、")} 分钟微任务`;
   }
   if (adjustment.operation === "shorten_task") {
     return `保留原开始时间，缩短为 ${adjustment.durationMinutes} 分钟`;
@@ -187,10 +196,14 @@ function sanitizeAdjustments(
       if (suggestion.operation !== "move_task" &&
         target.date === date &&
         target.startTime <= currentClock) continue;
-      if (suggestion.operation === "split_task" && target.durationMinutes < 40) continue;
+      if (suggestion.operation === "move_task" &&
+        target.durationMinutes > MAX_TIMELINE_TASK_MINUTES) continue;
+      if (suggestion.operation === "split_task" &&
+        target.durationMinutes <= MAX_TIMELINE_TASK_MINUTES) continue;
       if (suggestion.operation === "shorten_task" &&
         (!Number.isInteger(suggestion.durationMinutes) ||
-          suggestion.durationMinutes! < 20 ||
+          suggestion.durationMinutes! < MIN_TIMELINE_TASK_MINUTES ||
+          suggestion.durationMinutes! > MAX_TIMELINE_TASK_MINUTES ||
           suggestion.durationMinutes! >= target.durationMinutes)) continue;
       if (suggestion.operation === "move_task" &&
         (!validDate(suggestion.date, date, plan.plan.examDate) || !validTime(suggestion.startTime))) continue;
@@ -199,8 +212,8 @@ function sanitizeAdjustments(
       if (!validDate(suggestion.date, date, plan.plan.examDate) ||
         !validTime(suggestion.startTime) ||
         !Number.isInteger(suggestion.durationMinutes) ||
-        suggestion.durationMinutes! < 20 ||
-        suggestion.durationMinutes! > 120 ||
+        suggestion.durationMinutes! < MIN_TIMELINE_TASK_MINUTES ||
+        suggestion.durationMinutes! > MAX_TIMELINE_TASK_MINUTES ||
         !suggestion.subject ||
         !subjects.has(suggestion.subject) ||
         !suggestion.knowledgePoint?.trim()) continue;
@@ -240,7 +253,7 @@ function buildInstructions() {
 3. completedMinutesEstimate 只是“按已完成任务计划时长估算”，绝不能称为实际学习时长；actualStudyMinutes 为 null 时必须明确写“实际用时未记录”。
 4. 调整只能是待确认建议，不能声称已经修改 Timeline 或 Todo。
 5. 只能调整 status 为 pending/delayed 且 locked=false 的输入任务。不能更改 completed/in_progress/cancelled/locked 任务。
-6. operation 规则：move_task 需要真实 targetTaskId/date/startTime；split_task 只用于至少 40 分钟的真实任务；shorten_task 需要 20 分钟以上且小于原时长；add_practice 需要 date/startTime/durationMinutes/subject/knowledgePoint。
+6. 所有新建或调整后的单任务必须在 10–30 分钟内，优先 10–20 分钟。move_task 只移动已经不超过 30 分钟的真实任务；split_task 只用于超过 30 分钟的旧任务；shorten_task 需要 10–30 分钟且小于原时长；add_practice 需要 date/startTime/durationMinutes/subject/knowledgePoint，时长优先不超过 ${PREFERRED_MAX_TIMELINE_TASK_MINUTES} 分钟。
 7. 同一目标任务最多提出一种调整。建议日期不得晚于考试日期，避免与输入的现有任务时间重叠，保留睡眠和固定安排等硬边界。
 8. 如果没有足够证据，不要生成调整项；空数组优于猜测。
 
