@@ -62,7 +62,7 @@ async function createOnboardingGenerationKey({
   ) as ArrayBuffer;
   const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", source));
   const hash = Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join("");
-  return `onboarding-timeline:v2:${hash}`;
+  return `onboarding-timeline:v3:${hash}`;
 }
 
 function providerErrorResponse(error: AIProviderError) {
@@ -170,7 +170,7 @@ async function repairTimelinePlan({
     message: `请修复下面这段可能被截断、含非法换行或格式错误的 Timeline JSON，并只返回修复后的合法 JSON：\n\n${rawText}`,
     schemaName: "timeline_plan_repair",
     schema: TIMELINE_PLAN_JSON_SCHEMA as Record<string, unknown>,
-    maxOutputTokens: 2_200,
+    maxOutputTokens: 3_000,
   });
 }
 
@@ -363,10 +363,10 @@ export async function POST(request: Request) {
           input: timelineInput,
           diagnosticWeakTopics: diagnosticResult?.weakTopics ?? [],
         }),
-        message: `请根据这些信息生成 ${timelineInput.examName} 的考前 Timeline，并让 Todo 能从其中直接派生。`,
+        message: `请根据这些信息生成 ${timelineInput.examName} 的考前 Timeline。每个任务必须是 10–20 分钟优先、最多 30 分钟、可以直接照做并能量化验收的微任务，让 Todo 能从其中直接派生。`,
         schemaName: "timeline_plan",
         schema: TIMELINE_PLAN_JSON_SCHEMA as Record<string, unknown>,
-        maxOutputTokens: 2_200,
+        maxOutputTokens: 4_000,
       });
 
       generatedBy = aiResponse.model;
