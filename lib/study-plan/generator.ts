@@ -2,6 +2,13 @@ import type { LearningProfile } from "../learning-profile";
 import type { DiagnosticQuizWeakTopic } from "../diagnostic-quiz-types";
 import { getDateAfterDays, getDaysUntilExam } from "../exam-plan";
 import type { UserProfile } from "../profile-types";
+import {
+  clampTimelineTaskDuration,
+  MAX_TIMELINE_TASK_MINUTES,
+  MIN_TIMELINE_TASK_MINUTES,
+  PREFERRED_MAX_TIMELINE_TASK_MINUTES,
+  PREFERRED_TIMELINE_TASK_MINUTES,
+} from "./granularity";
 import type {
   StudyPlanAdjustment,
   StudyPlanDocument,
@@ -36,6 +43,19 @@ type RawStudyPlanTaskPayload = {
   completionCriteria?: unknown;
   priority?: unknown;
   reason?: unknown;
+};
+
+type StudyPlanBlueprint = {
+  index: number;
+  dayOffset: number;
+  durationMinutes: number;
+  subject: string;
+  title: string;
+  knowledgePoints: string[];
+  goal: string;
+  completionCriteria: string;
+  priority: StudyPlanTask["priority"];
+  reason: string;
 };
 
 export const TIMELINE_PLAN_JSON_SCHEMA = {
@@ -96,11 +116,17 @@ export const TIMELINE_PLAN_JSON_SCHEMA = {
         ],
         properties: {
           dayOffset: { type: "integer", minimum: 0, maximum: 365 },
-          durationMinutes: { type: "number" },
+          durationMinutes: {
+            type: "integer",
+            minimum: MIN_TIMELINE_TASK_MINUTES,
+            maximum: MAX_TIMELINE_TASK_MINUTES,
+          },
           subject: { type: "string" },
           title: { type: "string" },
           knowledgePoints: {
             type: "array",
+            minItems: 1,
+            maxItems: 2,
             items: { type: "string" },
           },
           goal: { type: "string" },
@@ -119,11 +145,6 @@ function parseStringArray(value: unknown) {
     .filter((item): item is string => typeof item === "string")
     .map((item) => item.trim())
     .filter(Boolean);
-}
-
-function clampInteger(value: unknown, min: number, max: number, fallback: number) {
-  if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
-  return Math.min(max, Math.max(min, Math.round(value)));
 }
 
 function normalizeTime(value: unknown, fallback: string) {
@@ -235,23 +256,132 @@ function normalizeDayOffset(value: unknown, maxDayOffset: number, fallback: numb
 }
 
 function normalizeDurationMinutes(value: unknown, fallback: number) {
-  return clampInteger(value, 20, 120, fallback);
+  return clampTimelineTaskDuration(value, fallback);
 }
 
 function allocateDurations(totalMinutes: number, requested: number[]) {
   if (requested.length === 0) return [];
-  const minimumPerTask = 20;
-  const hardLimit = Math.max(minimumPerTask * requested.length, totalMinutes);
-  let remaining = hardLimit;
+  let remaining = Math.max(
+    MIN_TIMELINE_TASK_MINUTES * requested.length,
+    totalMinutes,
+  );
 
   return requested.map((value, index) => {
     const tasksLeft = requested.length - index - 1;
-    const minimumLeft = tasksLeft * minimumPerTask;
-    const maxCurrent = Math.max(minimumPerTask, remaining - minimumLeft);
-    const planned = Math.min(maxCurrent, Math.max(minimumPerTask, value));
+    const minimumLeft = tasksLeft * MIN_TIMELINE_TASK_MINUTES;
+    const maxCurrent = Math.min(
+      MAX_TIMELINE_TASK_MINUTES,
+      Math.max(MIN_TIMELINE_TASK_MINUTES, remaining - minimumLeft),
+    );
+    const planned = Math.min(maxCurrent, clampTimelineTaskDuration(value));
     remaining -= planned;
     return planned;
   });
+}
+
+const ACTIONABLE_TITLE_PATTERN =
+  /(写出|完成|订正|口述|默写|画出|列出|解答|核对|背诵|朗读|翻译|整理|标注|重做|计算|证明|比较|自测|复述)/;
+const MEASURABLE_RESULT_PATTERN =
+  /(\d+|至少|全部).*(题|道|条|个|次|遍|组|篇|词|句|步骤|要点|公式|错题|例题|图)/;
+const NUMBERED_STEPS_PATTERN = /(?:1[.、]|①).*(?:2[.、]|②)/;
+
+function compactTaskLabel(value: string) {
+  const normalized = value.replace(/\s+/g, "").replace(/[，。；：、,.!?！？]/g, "");
+  return normalized.length <= 10 ? normalized : `${normalized.slice(0, 9)}…`;
+}
+
+function normalizeConcreteBlueprint(blueprint: StudyPlanBlueprint): StudyPlanBlueprint {
+  const knowledgePoints = blueprint.knowledgePoints.length
+    ? blueprint.knowledgePoints.slice(0, 2)
+    : [blueprint.title];
+  const primaryPoint = knowledgePoints[0] || `${blueprint.subject}当前考点`;
+  const compactPoint = compactTaskLabel(primaryPoint);
+  const title = blueprint.title.length <= 24 &&
+      ACTIONABLE_TITLE_PATTERN.test(blueprint.title) &&
+      MEASURABLE_RESULT_PATTERN.test(blueprint.title)
+    ? blueprint.title
+    : `完成${compactPoint}相关题3道并订正`;
+  const goal = NUMBERED_STEPS_PATTERN.test(blueprint.goal)
+    ? blueprint.goal
+    : `1. 不看资料写出${primaryPoint}的关键规则；2. 完成3道相关题；3. 核对答案并重做错题。`;
+  const completionCriteria = MEASURABLE_RESULT_PATTERN.test(
+    blueprint.completionCriteria,
+  )
+    ? blueprint.completionCriteria
+    : "写出至少2条规则，完成3题，并把全部错题订正到答案正确。";
+
+  return {
+    ...blueprint,
+    title,
+    knowledgePoints,
+    goal,
+    completionCriteria,
+    durationMinutes: Math.min(
+      PREFERRED_MAX_TIMELINE_TASK_MINUTES,
+      normalizeDurationMinutes(
+        blueprint.durationMinutes,
+        PREFERRED_TIMELINE_TASK_MINUTES,
+      ),
+    ),
+  };
+}
+
+function buildDerivedMicroTask(
+  base: StudyPlanBlueprint,
+  variant: number,
+  index: number,
+): StudyPlanBlueprint {
+  const primaryPoint = base.knowledgePoints[0] || base.title;
+  const compactPoint = compactTaskLabel(primaryPoint);
+  if (variant % 2 === 0) {
+    return {
+      ...base,
+      index,
+      title: `写出${compactPoint}要点2条`,
+      goal: `1. 合上资料回忆${primaryPoint}；2. 写出2条核心要点；3. 对照教材或课堂笔记补漏。`,
+      completionCriteria: "纸面留下至少2条要点，遗漏处已经补全并用不同颜色标出。",
+      durationMinutes: PREFERRED_TIMELINE_TASK_MINUTES,
+      reason: `${base.reason.replace(/[。；;]$/, "")}；先用短时闭卷回忆暴露遗漏。`,
+    };
+  }
+  return {
+    ...base,
+    index,
+    title: `口述${compactPoint}解题步骤`,
+    goal: `1. 选1道与${primaryPoint}相关的已做题；2. 不看答案口述解题步骤；3. 卡住处回看并再说1遍。`,
+    completionCriteria: "完整口述1遍解题步骤，并记录至少1个容易卡住的环节。",
+    durationMinutes: MIN_TIMELINE_TASK_MINUTES,
+    reason: `${base.reason.replace(/[。；;]$/, "")}；用短时复述检查是否真正理解。`,
+  };
+}
+
+function expandDayBlueprints(
+  dayEntries: StudyPlanBlueprint[],
+  dailyAvailableMinutes: number,
+) {
+  const maxTaskCount = Math.max(
+    1,
+    Math.min(3, Math.floor(dailyAvailableMinutes / MIN_TIMELINE_TASK_MINUTES)),
+  );
+  const preferredTaskCount = Math.min(
+    maxTaskCount,
+    dailyAvailableMinutes >= 50 ? 3 : 2,
+  );
+  const entries = dayEntries
+    .map(normalizeConcreteBlueprint)
+    .slice(0, maxTaskCount);
+  if (entries.length === 0) return entries;
+
+  const targetCount = Math.max(entries.length, preferredTaskCount);
+  const base = entries[0]!;
+  while (entries.length < targetCount) {
+    entries.push(buildDerivedMicroTask(
+      base,
+      entries.length - 1,
+      base.index * 10 + entries.length + 1,
+    ));
+  }
+  return entries;
 }
 
 export function buildTimelineGenerationInstructions({
@@ -271,7 +401,14 @@ export function buildTimelineGenerationInstructions({
 }) {
   const studyDayCount = getStudyDayCount(input.examDate);
   const lastStudyDayOffset = studyDayCount - 1;
-  const requestedBlueprintCount = Math.min(18, studyDayCount);
+  const preferredTasksPerDay = Math.min(
+    3,
+    Math.max(2, Math.floor(input.dailyAvailableMinutes / PREFERRED_TIMELINE_TASK_MINUTES)),
+  );
+  const requestedBlueprintCount = Math.min(
+    18,
+    studyDayCount * preferredTasksPerDay,
+  );
   const subjectSummary = subjects
     .map((item) => {
       const weakTopicSummary = item.weakTopics.length ? `；优先薄弱点：${item.weakTopics.join("、")}` : "";
@@ -310,9 +447,9 @@ export function buildTimelineGenerationInstructions({
 你必须严格遵守这些产品规则：
 1. Timeline 是唯一权威来源，Todo 只能从 Timeline 派生。
 2. 计划必须围绕考试日期倒推，按天和时间段分配任务。
-3. 任务要有科目、开始时间、结束时间、时长、目标、完成标准、原因、优先级。
+3. 每个任务框只允许放一个可独立完成的微任务，时长优先 10–20 分钟，永远不能超过 30 分钟。
 4. 需要尽量保留睡眠、课程等硬边界，不要挤占这些时间。
-5. 任务应该尽量小而明确，避免笼统描述，如“复习一下”。
+5. 任务必须具体到学生打开 Timeline 后可以立刻照做：写明操作对象、动作、数量或范围、执行步骤和可核对的完成结果。
 6. 如果信息不足，可以做合理假设，但必须写进 assumptions。
 7. 如果存在明显风险、任务过载或需要用户确认的调整，写进 risks 和 pendingAdjustments。
 8. 不要声称已经调用其他模块，也不要虚构日志、洞察或已完成状态。
@@ -341,29 +478,33 @@ export function buildTimelineGenerationInstructions({
   "tasks": [
     {
       "dayOffset": 0,
-      "durationMinutes": 45,
+      "durationMinutes": 15,
       "subject": "数学",
-      "title": "任务标题",
-      "knowledgePoints": ["知识点1", "知识点2"],
-      "goal": "本任务目标",
-      "completionCriteria": "怎样算完成",
-      "priority": "high|medium|low",
-      "reason": "为什么把它安排在这里"
+      "title": "完成函数单调性3题并订正",
+      "knowledgePoints": ["函数单调性"],
+      "goal": "1. 写出判定步骤；2. 完成3题；3. 核对并重做错题。",
+      "completionCriteria": "完成3题，全部错题写明错因并重做正确。",
+      "priority": "high",
+      "reason": "诊断显示函数单调性容易失分，先用短练习定位错误。"
     }
   ]
 }
 
 额外要求：
 - 学习日期必须从今天开始，一直覆盖到考试前一天，共 ${studyDayCount} 天；dayOffset 从 0 到 ${lastStudyDayOffset}。
-- tasks 输出 ${requestedBlueprintCount} 个任务蓝图。若总天数不超过 18 天，每个 dayOffset 都必须至少出现一次；超过 18 天时要均匀覆盖前期、中期和考前阶段，系统会据此补齐每天任务。
+- tasks 输出 ${requestedBlueprintCount} 个微任务蓝图。短周期内同一天可以安排 2–3 个不同动作的任务；长周期要均匀覆盖前期、中期和考前阶段，系统会据此补齐每天任务。
 - 任务覆盖当前已选科目中的关键科目。
 - 如果存在诊断 Quiz 薄弱点，优先让任务直接围绕这些薄弱点或所在单元。
 - 每天至少安排 1 个任务，任务总时长不要明显超过每日可用时间。
-- 每天任务总时长不要明显超过每日可用时间。
+- durationMinutes 必须是 10–30 的整数，优先使用 10、15 或 20；只有任务确实无法再拆时才允许 21–30。
+- title 必须以可执行动作表达，并带数量、范围或产出。禁止“复习一下”“薄弱梳理”“专项训练”“错题回看”“巩固知识点”这类笼统标题。
+- goal 必须写成 2–3 个带序号的执行步骤，例如“1. 闭卷写规则；2. 做3题；3. 订正错题”。
+- completionCriteria 必须可量化、可勾选验收，例如题数、要点数、订正结果或口述次数；不要只写“理解”“掌握”“完成练习”。
+- 不要虚构教材页码、老师布置的题号或学生未提供的资料；没有具体题号时，用知识点 + 题量描述。
 - 所有字段尽量简洁：
-- title 控制在 16 个字以内。
+- title 控制在 24 个字以内。
 - knowledgePoints 每个任务最多 2 个。
-- goal、completionCriteria、reason 尽量各用 1 个短句。
+- goal 用一行写完 2–3 个编号步骤；completionCriteria、reason 各用 1 个短句。
 - assumptions、risks、pendingAdjustments 各不超过 2 条。
 - 不要输出任何额外字段，不要重复表达。
 - 输出使用简体中文。`;
@@ -402,7 +543,7 @@ export function parseStudyPlanFromAI({
   const tasksSource = Array.isArray(payload.tasks) ? payload.tasks : [];
   const studyDayCount = getStudyDayCount(examDate);
   const maxDayOffset = studyDayCount - 1;
-  const blueprints = tasksSource.flatMap((task, index) => {
+  const blueprints: StudyPlanBlueprint[] = tasksSource.flatMap((task, index) => {
       if (!task || typeof task !== "object") return [];
       const entry = task as RawStudyPlanTaskPayload;
       const title = sanitizeText(entry.title, "");
@@ -414,11 +555,14 @@ export function parseStudyPlanFromAI({
         subject,
         title,
         knowledgePoints: parseStringArray(entry.knowledgePoints).slice(0, 2),
-        goal: sanitizeText(entry.goal, "完成当前任务并留下可复盘结果。"),
-        completionCriteria: sanitizeText(entry.completionCriteria, "按任务要求完成并进行自检。"),
+        goal: sanitizeText(entry.goal, ""),
+        completionCriteria: sanitizeText(entry.completionCriteria, ""),
         priority: normalizePriority(entry.priority),
         reason: sanitizeText(entry.reason, "根据考试节奏、科目优先级和可用时间安排。"),
-        durationMinutes: normalizeDurationMinutes(entry.durationMinutes, 45),
+        durationMinutes: normalizeDurationMinutes(
+          entry.durationMinutes,
+          PREFERRED_TIMELINE_TASK_MINUTES,
+        ),
       }];
     });
   const groupedBlueprints = Array.from({ length: studyDayCount }, (_, dayOffset) => {
@@ -438,13 +582,17 @@ export function parseStudyPlanFromAI({
     .flatMap((dayEntries, dayOffset) => {
       if (dayEntries.length === 0) return [];
       const date = getDateAfterDays(dayOffset);
-      const requestedDurations = dayEntries.map((entry) => entry.durationMinutes);
+      const scheduledEntries = expandDayBlueprints(
+        dayEntries,
+        dailyAvailableMinutes,
+      );
+      const requestedDurations = scheduledEntries.map((entry) => entry.durationMinutes);
       const allocatedDurations = allocateDurations(dailyAvailableMinutes, requestedDurations);
       const scheduledStudyMinutes = allocatedDurations.reduce(
         (total, duration) => total + duration,
         0,
       );
-      const breakCount = Math.max(0, dayEntries.length - 1);
+      const breakCount = Math.max(0, scheduledEntries.length - 1);
       const breakMinutes = breakCount > 0
         ? Math.min(
             10,
@@ -456,8 +604,9 @@ export function parseStudyPlanFromAI({
         : 0;
       let cursor = parseClockToMinutes(normalizeTime(preferredStartTime, "19:00"));
 
-      return dayEntries.map((entry, index) => {
-        const durationMinutes = allocatedDurations[index] ?? 45;
+      return scheduledEntries.map((entry, index) => {
+        const durationMinutes = allocatedDurations[index] ??
+          PREFERRED_TIMELINE_TASK_MINUTES;
         const startTime = formatMinutesToClock(cursor);
         const endTime = formatMinutesToClock(cursor + durationMinutes);
         cursor += durationMinutes + breakMinutes;
@@ -560,25 +709,43 @@ export function buildFallbackStudyPlan({
     const progress = studyDayCount === 1 ? 1 : index / (studyDayCount - 1);
     const phase = progress < 0.45 ? 0 : progress < 0.8 ? 1 : 2;
     const weakTopics = weakTopicsBySubject.get(descriptor.subject) ?? descriptor.weakTopics;
-    const primaryWeakTopic = weakTopics[0] ?? `${descriptor.subject}核心点`;
+    const hasWeakTopic = Boolean(weakTopics[0]);
+    const primaryWeakTopic = weakTopics[0] ?? descriptor.examScope;
+    const compactPoint = compactTaskLabel(primaryWeakTopic);
     return {
       dayOffset: index,
       subject: descriptor.subject,
       title: phase === 0
-        ? `${descriptor.subject}薄弱梳理`
+        ? hasWeakTopic
+          ? `写出${compactPoint}规则2条`
+          : `列出${compactPoint}考点3个`
         : phase === 1
-          ? `${descriptor.subject}专项训练`
-          : `${descriptor.subject}错题回看`,
+          ? `完成${compactPoint}相关题3道并订正`
+          : `重做${compactPoint}错题2道`,
       knowledgePoints: [primaryWeakTopic, descriptor.examScope].slice(0, 2),
-      goal: phase === 0 ? "梳理薄弱点并明确易错环节。" : phase === 1 ? "完成针对性训练并记录失误。" : "复盘错题并固化方法。",
-      completionCriteria: phase === 0 ? "形成一页提纲。" : phase === 1 ? "完成练习并标记错因。" : "整理错题并复述方法。",
+      goal: phase === 0
+        ? hasWeakTopic
+          ? `1. 闭卷写出${primaryWeakTopic}的2条规则；2. 对照教材或笔记补漏；3. 圈出1个易错条件。`
+          : `1. 打开教材目录定位${descriptor.examScope}；2. 写出3个具体考点；3. 给最不熟的1项画星号。`
+        : phase === 1
+          ? `1. 完成${primaryWeakTopic}相关的3道题；2. 核对答案；3. 错题写明错因后重做。`
+          : `1. 选2道${primaryWeakTopic}错题；2. 遮住答案重做；3. 口述每题的关键步骤。`,
+      completionCriteria: phase === 0
+        ? hasWeakTopic
+          ? "留下至少2条规则和1个易错条件，遗漏内容已经补全。"
+          : "写出3个具体考点，并给最不熟的1项完成星号标记。"
+        : phase === 1
+          ? "完成3题，全部错题写明错因并重做正确。"
+          : "2道错题均独立重做正确，并各口述1遍关键步骤。",
       priority: phase === 0 ? "high" : phase === 1 ? "medium" : "medium",
       reason: phase === 0
         ? "先围绕诊断暴露的问题建立修复框架。"
         : phase === 1
           ? "在理解后立刻训练，便于修复薄弱点。"
           : "当天复盘可减少遗忘和重复犯错。",
-      durationMinutes: phase === 0 ? 50 : phase === 1 ? 45 : 35,
+      durationMinutes: phase === 1
+        ? PREFERRED_MAX_TIMELINE_TASK_MINUTES
+        : PREFERRED_TIMELINE_TASK_MINUTES,
     };
   });
 
