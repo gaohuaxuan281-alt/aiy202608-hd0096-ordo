@@ -12,6 +12,12 @@ import type {
   TodoSnapshot,
   TodoTaskSlice,
 } from "./types";
+import {
+  MAX_TIMELINE_TASK_MINUTES,
+  MIN_TIMELINE_TASK_MINUTES,
+  splitTimelineTaskDurations,
+  validateTimelineTaskDuration,
+} from "./granularity";
 import type {
   FeedbackAdjustmentOperation,
   FeedbackAdjustmentPayload,
@@ -74,6 +80,13 @@ function parseStoredPlan(row: StudyPlanRow): StoredStudyPlan {
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
+}
+
+function validateGeneratedPlanGranularity(plan: StudyPlanDocument) {
+  if (plan.tasks.length === 0) throw new Error("STUDY_PLAN_TASK_NOT_FOUND");
+  for (const task of plan.tasks) {
+    validateTimelineTaskDuration(task.durationMinutes);
+  }
 }
 
 export async function getLatestStudyPlan(userId: string): Promise<StoredStudyPlan | null> {
@@ -313,6 +326,7 @@ export async function completeStudyPlanGeneration({
   rawResponse: string;
 }): Promise<StoredStudyPlan> {
   await ensureAuthSchema();
+  validateGeneratedPlanGranularity(plan);
   const now = Date.now();
   const completed = await getD1()
     .prepare(`UPDATE study_plans
@@ -408,6 +422,7 @@ export async function saveStudyPlan({
   rawResponse: string;
 }): Promise<StoredStudyPlan> {
   await ensureAuthSchema();
+  validateGeneratedPlanGranularity(plan);
   const d1 = getD1();
   const id = crypto.randomUUID();
   const now = Date.now();
@@ -583,9 +598,8 @@ function validateStartNotPast(date: string, startTime: string) {
 
 function taskEndTime(startTime: string, durationMinutes: number) {
   const start = parseClockMinutes(startTime);
-  if (start === null || !Number.isInteger(durationMinutes) || durationMinutes < 20 || durationMinutes > 240) {
-    throw new Error("STUDY_PLAN_TIME_INVALID");
-  }
+  if (start === null) throw new Error("STUDY_PLAN_TIME_INVALID");
+  validateTimelineTaskDuration(durationMinutes);
   return formatClockMinutes(start + durationMinutes);
 }
 
@@ -693,7 +707,10 @@ function applyOperation(
     if (target.date < dateKeyInShanghai()) throw new Error("STUDY_PLAN_DATE_OUT_OF_RANGE");
     validateStartNotPast(target.date, target.startTime);
     const duration = input.payload.durationMinutes;
-    if (!Number.isInteger(duration) || duration! < 20 || duration! >= target.durationMinutes) {
+    if (!Number.isInteger(duration) ||
+      duration! < MIN_TIMELINE_TASK_MINUTES ||
+      duration! > MAX_TIMELINE_TASK_MINUTES ||
+      duration! >= target.durationMinutes) {
       throw new Error("STUDY_PLAN_DURATION_INVALID");
     }
     const shortened: StudyPlanTask = {
@@ -710,41 +727,43 @@ function applyOperation(
     if (!target) throw new Error("STUDY_PLAN_TASK_NOT_FOUND");
     if (target.date < dateKeyInShanghai()) throw new Error("STUDY_PLAN_DATE_OUT_OF_RANGE");
     validateStartNotPast(target.date, target.startTime);
-    if (target.durationMinutes < 40) throw new Error("STUDY_PLAN_DURATION_INVALID");
-    const firstDuration = Math.ceil(target.durationMinutes / 2);
-    const secondDuration = target.durationMinutes - firstDuration;
-    if (secondDuration < 20) throw new Error("STUDY_PLAN_DURATION_INVALID");
-    const firstEnd = taskEndTime(target.startTime, firstDuration);
+    if (target.durationMinutes <= MAX_TIMELINE_TASK_MINUTES) {
+      throw new Error("STUDY_PLAN_DURATION_INVALID");
+    }
+    const durations = splitTimelineTaskDurations(target.durationMinutes);
     const suffix = input.adjustmentId.slice(-8);
-    const firstId = `${target.id}-part-1-${suffix}`;
-    const secondId = `${target.id}-part-2-${suffix}`;
-    const first: StudyPlanTask = {
-      ...target,
-      id: firstId,
-      title: `${target.title}（1/2）`,
-      durationMinutes: firstDuration,
-      endTime: firstEnd,
-      status: "pending",
-      reason: input.reason,
-      source: "ai_adjusted",
-    };
-    const second: StudyPlanTask = {
-      ...target,
-      id: secondId,
-      title: `${target.title}（2/2）`,
-      startTime: firstEnd,
-      endTime: taskEndTime(firstEnd, secondDuration),
-      durationMinutes: secondDuration,
-      status: "pending",
-      dependencies: [firstId],
-      reason: input.reason,
-      source: "ai_adjusted",
-    };
+    const partIds = durations.map(
+      (_, index) => `${target.id}-part-${index + 1}-${suffix}`,
+    );
+    const compactTargetTitle = target.title.length <= 18
+      ? target.title
+      : `${target.title.slice(0, 17)}…`;
+    let cursor = target.startTime;
+    const parts = durations.map((duration, index) => {
+      const startTime = cursor;
+      const endTime = taskEndTime(startTime, duration);
+      cursor = endTime;
+      return {
+        ...target,
+        id: partIds[index]!,
+        title: `${compactTargetTitle}（${index + 1}/${durations.length}）`,
+        startTime,
+        endTime,
+        durationMinutes: duration,
+        goal: `计时 ${duration} 分钟完成原任务的第 ${index + 1}/${durations.length} 段；到时停下并标记进度。`,
+        completionCriteria: `连续执行 ${duration} 分钟，并记录已完成范围和下一步起点。`,
+        status: "pending" as const,
+        dependencies: index === 0 ? target.dependencies : [partIds[index - 1]!],
+        reason: input.reason,
+        source: "ai_adjusted" as const,
+      } satisfies StudyPlanTask;
+    });
+    const lastPartId = partIds.at(-1)!;
     return current.plan.tasks
-      .flatMap((task) => task.id === target.id ? [first, second] : [task])
-      .map((task) => task.id === firstId || task.id === secondId
+      .flatMap((task) => task.id === target.id ? parts : [task])
+      .map((task) => partIds.includes(task.id)
         ? task
-        : { ...task, dependencies: task.dependencies.map((id) => id === target.id ? secondId : id) });
+        : { ...task, dependencies: task.dependencies.map((id) => id === target.id ? lastPartId : id) });
   }
 
   if (input.operation === "add_practice") {
@@ -758,10 +777,16 @@ function applyOperation(
     }
     validateTargetDate(date, current.plan.examDate);
     validateStartNotPast(date, startTime!);
-    if (duration! < 20 || duration! > 120) throw new Error("STUDY_PLAN_DURATION_INVALID");
+    if (duration! < MIN_TIMELINE_TASK_MINUTES ||
+      duration! > MAX_TIMELINE_TASK_MINUTES) {
+      throw new Error("STUDY_PLAN_DURATION_INVALID");
+    }
     const validSubjects = new Set(current.plan.tasks.map((task) => task.subject));
     if (!subject || !validSubjects.has(subject)) throw new Error("STUDY_PLAN_SUBJECT_INVALID");
     if (!knowledgePoint || knowledgePoint.length > 80) throw new Error("STUDY_PLAN_KNOWLEDGE_INVALID");
+    const compactKnowledgePoint = knowledgePoint.length <= 10
+      ? knowledgePoint
+      : `${knowledgePoint.slice(0, 9)}…`;
     const task: StudyPlanTask = {
       id: `feedback-practice-${input.adjustmentId}`,
       date,
@@ -769,10 +794,10 @@ function applyOperation(
       endTime: taskEndTime(startTime!, duration!),
       durationMinutes: duration!,
       subject,
-      title: `${knowledgePoint}针对练习`,
+      title: `完成${compactKnowledgePoint}相关题3道并订正`,
       knowledgePoints: [knowledgePoint],
-      goal: `针对反馈中暴露的薄弱点巩固 ${knowledgePoint}`,
-      completionCriteria: "完成练习并记录仍不确定的步骤",
+      goal: `1. 回忆${knowledgePoint}的关键规则；2. 完成3道相关题；3. 核对答案并重做错题。`,
+      completionCriteria: "完成3题，全部错题写明错因并重做正确。",
       status: "pending",
       priority: "high",
       locked: false,
@@ -850,10 +875,16 @@ export async function applyFeedbackAdjustment(input: ApplyAdjustmentInput) {
       .toSorted((left, right) =>
         `${left.date}T${left.startTime}`.localeCompare(`${right.date}T${right.startTime}`),
       );
+    const changedTaskIds = affectedTaskIds(input, tasks);
+    for (const task of tasks) {
+      if (changedTaskIds.has(task.id)) {
+        validateTimelineTaskDuration(task.durationMinutes);
+      }
+    }
     validateNoOverlap(tasks);
     validateDailyBudget(tasks, current.input.dailyAvailableMinutes);
     validateDependencies(tasks);
-    validateTasksAgainstPlanConstraints(tasks, current.input, affectedTaskIds(input, tasks));
+    validateTasksAgainstPlanConstraints(tasks, current.input, changedTaskIds);
 
     const now = Math.max(Date.now(), current.updatedAt + 1);
     const nextPlan: StudyPlanDocument = {
